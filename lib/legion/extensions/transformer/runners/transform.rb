@@ -6,25 +6,24 @@ module Legion
       module Runners
         class Transform
           def self.transform(payload)
-            transform = Legion::Extensions::Transformer::Runners::Transform.new(payload)
+            transform = Legion::Extensions::Transformer::Runners::Transform.new(payload[:payload])
             payload[:args] = Legion::JSON.load(transform.transform)
 
             task_update(payload[:task_id], 'transformer.succeeded') unless payload[:task_id].nil?
-            relationship = Legion::Data::Model::Relationship[payload[:relationship_id]]
-            queue = relationship.action.namespace.values[:queue]
-            exchange = relationship.action.namespace.values[:exchange]
-            payload[:options][:method] = Legion::Data::Model::Relationship[payload[:relationship_id]].action.values[:name]
 
-            if exchange.is_a? String
-              con = Legion::Transport::Exchange.new(exchange, {})
-            elsif queue.is_a? String
+            queue = Legion::Data::Model::Namespace[payload[:payload][:namespace_id]].values[:queue]
+            exchange = Legion::Data::Model::Namespace[payload[:payload][:namespace_id]].values[:exchange]
+            if queue.is_a? String
               con = Legion::Transport::Queue.new(queue, {})
+            elsif exchange.is_a? String
+              con = Legion::Transport::Exchange.new(exchange, {})
             else
               raise Exception 'no queue or exchange available'
             end
             task_update(payload[:task_id], 'task.queued') unless payload[:task_id].nil?
 
-            con.publish(Legion::JSON.dump(payload),content_type: 'application/json').close
+            con.publish(Legion::JSON.dump(payload),content_type: 'application/json')
+            con.close
           rescue => ex
             Legion::Logging.error 'LEX::Transformer::Runners::Transform had an exception'
             Legion::Logging.warn ex.message
@@ -35,20 +34,18 @@ module Legion
           end
 
           def self.task_update(task_id, status = 'transformer.succeeded')
-            Legion::Transport::Messages::TaskUpdate.new(task_id, status).publish
+            Legion::Transport::Messages::TaskUpdate.new(task_id: task_id, status: status).publish
           end
 
           attr_accessor :task_id, :transformation, :values, :output
           def initialize(args)
-            # Legion::Logging.debug('Starting Transformer')
             @task_id = args[:task_id]
-            @transformation = args[:transformations]
+            @transformation = args[:transformation]
             @values = to_dotted_hash(args)
           end
 
           def transform
             @output = @transformation % @values
-            # Legion::Logging.debug('Legion::Transformer ran successfully')
             @output
           rescue KeyError => exception
             Legion::Logging.error(exception.message)
