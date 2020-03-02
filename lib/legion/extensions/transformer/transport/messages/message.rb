@@ -5,17 +5,19 @@ module Legion::Extensions::Transformer::Transport::Messages
     end
 
     def message
-      { args: @options[:args]||{}}
+      { args: @options[:args] || @options }
     end
 
     def routing_key
-      namespace = Legion::Data::Model::Namespace[@options[:namespace_id]]
-      namespace.values[:routing_key]
+      "#{function.runner.extension.values[:name]}.#{function.runner.values[:name]}.#{function.values[:name]}"
     end
 
     def exchange
-      namespace = Legion::Data::Model::Namespace[@options[:namespace_id]]
-      Legion::Transport::Exchanges::Bunny.new(namespace.values[:exchange])
+      Legion::Transport::Exchange.new(function.runner.extension.values[:exchange])
+    end
+
+    def function
+      @function ||= Legion::Data::Model::Function[@options[:function_id]]
     end
   end
 end

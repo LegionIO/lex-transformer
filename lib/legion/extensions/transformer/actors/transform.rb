@@ -1,14 +1,12 @@
-require 'legion/extensions/actors/subscription'
+module Legion::Extensions::Transformer
+  module Actor
+    class Transform < Legion::Extensions::Actors::Subscription
+      def runner_function
+        'transform'
+      end
 
-module Legion
-  module Extensions
-    module Transformer
-      module Actor
-        class Transform < Legion::Extensions::Actors::Subscription
-          def runner_function
-            'transform'
-          end
-        end
+      def use_runner
+        false
       end
     end
   end

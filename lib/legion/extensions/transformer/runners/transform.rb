@@ -1,71 +1,55 @@
 require 'legion/transport/queue'
+require 'tilt'
+require 'erb'
+
 
 module Legion::Extensions::Transformer
   module Runners
     class Transform
-      def self.transform(**payload)
-        transform = Legion::Extensions::Transformer::Runners::Transform.new(payload)
-        payload[:args] = Legion::JSON.load(transform.transform)
+      extend Legion::Extensions::Helpers::Core
+      extend Legion::Extensions::Helpers::Task
 
-        task_update(payload[:task_id], 'transformer.succeeded') unless payload[:task_id].nil?
+      def self.transform(transformation:, **payload)
+        template = Tilt['erb'].new { transformation }
+        variables = { **payload }
+        variables[:crypt] = Legion::Crypt if transformation.include? 'crypt'
+        variables[:settings] = Legion::Settings if transformation.include? 'settings'
+        variables[:cache] = Legion::Cache if transformation.include? 'cache'
+        variables[:task] = Legion::Data::Model::Task[payload[:task_id]] if payload.has_key?(:task_id) && transformation.include?('task')
 
-        message = Legion::Extensions::Transformer::Transport::Messages::Message.new(**payload)
-        message.publish
+
+        payload[:args] = from_json(template.render( self, variables ))
+        if payload[:args].is_a? Hash
+          task_update(payload[:task_id], 'transformer.succeeded', function_args: payload[:args]) unless payload[:task_id].nil?
+          send_task(payload)
+        elsif payload[:args].is_a? Array
+          payload[:args].each do |thing|
+            new_payload = payload
+            task = Legion::Runner::Status.generate_task_id(function_args: thing, status: 'task.queued', args: thing, **new_payload)
+            new_payload[:task_id] = task[:task_id]
+            new_payload[:args] = thing
+            send_task(**new_payload)
+          end
+          task_update(payload[:task_id], 'task.multiplied', function_args: payload[:args]) unless payload[:task_id].nil?
+        end
+
         task_update(payload[:task_id], 'task.queued') unless payload[:task_id].nil?
+        if payload[:debug] && payload.has_key?(:task_id)
+          generate_task_log(task_id: payload[:task_id], function: 'transform', values: payload)
+        end
         { success: true, **payload }
-      rescue => e
-        Legion::Logging.runner_exception(e, **payload)
+      rescue => ex
+        Legion::Logging.runner_exception(ex, **payload)
         task_update(payload[:task_id], 'transformer.exception') unless payload[:task_id].nil?
       end
 
-      def self.task_update(task_id, status = 'transformer.succeeded')
-        Legion::Transport::Messages::TaskUpdate.new(task_id: task_id, status: status).publish
-      end
-
-      attr_accessor :task_id, :transformation, :values, :output
-      def initialize(args)
-        @task_id = args[:task_id]
-        @transformation = args[:transformation]
-        @args = args[:payload]||args
-        @values = to_dotted_hash(args)
-      end
-
-      def transform
-        @output = @transformation % @values
-          # things to support long term
-          # :count
-        # @output = Legion::JSON.load(output)
-      rescue KeyError => exception
-        Legion::Logging.error(exception.message)
-        Legion::Logging.debug(exception.backtrace.inspect)
-        raise
-      end
-
-      def to_dotted_hash(hash, recursive_key = '')
-        hash.each_with_object({}) do |(k, v), ret|
-          key = recursive_key + k.to_s
-          if v.is_a? Hash
-            ret.merge! to_dotted_hash(v, key + '.')
-          else
-            ret[key.to_sym] = v
-          end
+      def self.send_task(**opts)
+        payload = {}
+        [:task_id, :relationship_id, :trigger_function_id, :runner_class, :function_id, :function, :chain_id, :debug, :args].each do |thing|
+          payload[thing] = opts[thing] if opts.has_key? thing
         end
-      end
 
-      def message
-        output = {}
-        output[:args] = @output
-        output[:relationship_id] = @args[:relationship_id]
-        output[:chain_id] = @args[:chain_id]||nil
-        output[:trigger_namespace_id] = @args[:trigger_namespace_id]||nil
-        output[:trigger_function_id] = @args[:trigger_function_id]||nil
-        output[:function_id] = @args[:function_id]||nil
-        output[:function] = @args[:function]||nil
-        output[:namespace_id] = @args[:namespace_id]||nil
-        output[:conditions] = @args[:conditions]||nil
-        output[:transformation] = @args[:transformation]||nil
-        output[:task_id] = @args[:task_id]||nil
-        output
+        Legion::Extensions::Transformer::Transport::Messages::Message.new(**payload).publish
       end
     end
   end
