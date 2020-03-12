@@ -1,7 +1,7 @@
 module Legion::Extensions::Transformer
   module Transport
     module Exchanges
-      class Task < Legion::Transport::Exchanges::Task
+      class Transformer < Legion::Transport::Exchanges::Task
       end
     end
   end

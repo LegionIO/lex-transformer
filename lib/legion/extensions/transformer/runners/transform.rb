@@ -1,12 +1,9 @@
-require 'legion/transport/queue'
 require 'tilt'
-require 'erb'
-
 
 module Legion::Extensions::Transformer
   module Runners
     class Transform
-      extend Legion::Extensions::Helpers::Core
+      extend Legion::Extensions::Helpers::Lex
       extend Legion::Extensions::Helpers::Task
 
       def self.transform(transformation:, **payload)
@@ -38,9 +35,9 @@ module Legion::Extensions::Transformer
           generate_task_log(task_id: payload[:task_id], function: 'transform', values: payload)
         end
         { success: true, **payload }
-      rescue => ex
-        Legion::Logging.runner_exception(ex, **payload)
-        task_update(payload[:task_id], 'transformer.exception') unless payload[:task_id].nil?
+      # rescue => ex
+        # task_update(payload[:task_id], 'transformer.exception') unless payload[:task_id].nil?
+        # raise ex
       end
 
       def self.send_task(**opts)
