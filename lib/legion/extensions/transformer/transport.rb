@@ -4,15 +4,15 @@ module Legion::Extensions::Transformer
 
     def self.additional_e_to_q
       [
-          {
-              # from: Legion::Transport::Exchanges::Task,
-              to: Legion::Extensions::Transformer::Transport::Queues::Transform,
-              routing_key: 'task.conditioner.succeeded'
-          }, {
-              # from: Legion::Transport::Exchanges::Task,
-              to: Legion::Extensions::Transformer::Transport::Queues::Transform,
-              routing_key: 'task.subtask.transform'
-          }
+        {
+          # from: Legion::Transport::Exchanges::Task,
+          to:          Legion::Extensions::Transformer::Transport::Queues::Transform,
+          routing_key: 'task.conditioner.succeeded'
+        }, {
+          # from: Legion::Transport::Exchanges::Task,
+          to:          Legion::Extensions::Transformer::Transport::Queues::Transform,
+          routing_key: 'task.subtask.transform'
+        }
       ]
     end
   end
