@@ -17,20 +17,28 @@ module Legion::Extensions::Transformer
         end
 
         payload[:args] = from_json(template.render(self, variables))
-        if payload[:args].is_a? Hash
+        case payload[:args]
+        when Hash
           unless payload[:task_id].nil?
             task_update(payload[:task_id], 'transformer.succeeded', function_args: payload[:args])
           end
-          send_task(payload)
-        elsif payload[:args].is_a? Array
+          send_task(**payload)
+        when Array
           payload[:args].each do |thing|
             new_payload = payload
-            task = Legion::Runner::Status.generate_task_id(function_args: thing, status: 'task.queued', args: thing, **new_payload)
+            task = Legion::Runner::Status.generate_task_id(function_args: thing,
+                                                           status:        'task.queued',
+                                                           args:          thing,
+                                                           **new_payload)
             new_payload[:task_id] = task[:task_id]
             new_payload[:args] = thing
             send_task(**new_payload)
           end
-          task_update(payload[:task_id], 'task.multiplied', function_args: payload[:args]) unless payload[:task_id].nil?
+          unless payload[:task_id].nil?
+            task_update(payload[:task_id],
+                        'task.multiplied',
+                        function_args: payload[:args])
+          end
         end
 
         task_update(payload[:task_id], 'task.queued') unless payload[:task_id].nil?
@@ -38,14 +46,11 @@ module Legion::Extensions::Transformer
           generate_task_log(task_id: payload[:task_id], function: 'transform', values: payload)
         end
         { success: true, **payload }
-        # rescue => ex
-        # task_update(payload[:task_id], 'transformer.exception') unless payload[:task_id].nil?
-        # raise ex
       end
 
       def self.send_task(**opts)
         payload = {}
-        %i[task_id relationship_id trigger_function_id runner_class function_id function chain_id debug args].each do |thing|
+        %i[task_id relationship_id trigger_function_id runner_class function_id function chain_id debug args].each do |thing| # rubocop:disable Layout/LineLength
           payload[thing] = opts[thing] if opts.key? thing
         end
 

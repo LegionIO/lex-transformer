@@ -12,6 +12,7 @@ Gem::Specification.new do |spec|
   spec.description   = 'Runs transformer statements against tasks in a relationship'
   spec.homepage      = 'https://bitbucket.org/legion-io/lex-transformer'
   spec.license       = 'MIT'
+  spec.required_ruby_version = Gem::Requirement.new('>= 2.5.0')
 
   if spec.respond_to?(:metadata)
     spec.metadata['homepage_uri'] = spec.homepage
