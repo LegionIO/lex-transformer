@@ -5,7 +5,8 @@ module Legion::Extensions::Transformer::Transport::Messages
     end
 
     def message
-      { args: @options[:args] || @options }
+      @options[:function] = function.values[:name]
+      @options
     end
 
     def routing_key
