@@ -1,12 +1,11 @@
 require 'legion/extensions/transformer/version'
-require 'legion/extensions'
 
 module Legion
   module Extensions
     module Transformer
-      extend Legion::Extensions::Core
+      extend Legion::Extensions::Core if Legion::Extensions.const_defined? :Core
 
-      def data_required?
+      def self.data_required?
         true
       end
     end

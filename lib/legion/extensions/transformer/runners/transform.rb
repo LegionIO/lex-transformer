@@ -2,11 +2,8 @@ require 'tilt'
 
 module Legion::Extensions::Transformer
   module Runners
-    class Transform
-      extend Legion::Extensions::Helpers::Lex
-      extend Legion::Extensions::Helpers::Task
-
-      def self.transform(transformation:, **payload)
+    module Transform
+      def transform(transformation:, **payload)
         template = Tilt['erb'].new { transformation }
         variables = { **payload }
         variables[:crypt] = Legion::Crypt if transformation.include? 'crypt'
@@ -23,6 +20,7 @@ module Legion::Extensions::Transformer
             task_update(payload[:task_id], 'transformer.succeeded', function_args: payload[:args])
           end
           send_task(**payload)
+          task_update(payload[:task_id], 'task.queued') unless payload[:task_id].nil?
         when Array
           payload[:args].each do |thing|
             new_payload = payload
@@ -41,14 +39,13 @@ module Legion::Extensions::Transformer
           end
         end
 
-        task_update(payload[:task_id], 'task.queued') unless payload[:task_id].nil?
         if payload[:debug] && payload.key?(:task_id)
           generate_task_log(task_id: payload[:task_id], function: 'transform', values: payload)
         end
         { success: true, **payload }
       end
 
-      def self.send_task(**opts)
+      def send_task(**opts)
         payload = {}
         %i[task_id relationship_id trigger_function_id runner_class function_id function chain_id debug args].each do |thing| # rubocop:disable Layout/LineLength
           payload[thing] = opts[thing] if opts.key? thing
@@ -56,6 +53,9 @@ module Legion::Extensions::Transformer
 
         Legion::Extensions::Transformer::Transport::Messages::Message.new(**payload).publish
       end
+
+      include Legion::Extensions::Helpers::Lex
+      extend Legion::Extensions::Helpers::Task
     end
   end
 end
