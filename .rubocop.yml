@@ -9,9 +9,9 @@ Metrics/BlockLength:
 Metrics/PerceivedComplexity:
   Max: 20
 Metrics/CyclomaticComplexity:
-  Max: 15
+  Max: 117
 Metrics/AbcSize:
-  Max: 50
+  Max: 52
 Layout/SpaceAroundEqualsInParameterDefault:
   EnforcedStyle: space
 Style/SymbolArray:
@@ -24,6 +24,7 @@ Style/Documentation:
 AllCops:
   TargetRubyVersion: 2.5
   NewCops: enable
+  SuggestExtensions: false
 Style/FrozenStringLiteralComment:
   Enabled: false
 Naming/FileName:

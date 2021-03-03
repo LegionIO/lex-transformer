@@ -4,23 +4,28 @@ module Legion::Extensions::Transformer
   module Runners
     module Transform
       def transform(transformation:, **payload)
-        template = Tilt['erb'].new { transformation }
-        variables = { **payload }
-        variables[:crypt] = Legion::Crypt if transformation.include? 'crypt'
-        variables[:settings] = Legion::Settings if transformation.include? 'settings'
-        variables[:cache] = Legion::Cache if transformation.include? 'cache'
-        if payload.key?(:task_id) && transformation.include?('task')
-          variables[:task] = Legion::Data::Model::Task[payload[:task_id]]
+        if transformation.include?('<%') || transformation.include?('%>')
+          template = Tilt['erb'].new { transformation }
+          variables = { **payload }
+          variables[:crypt] = Legion::Crypt if transformation.include? 'crypt'
+          variables[:settings] = Legion::Settings if transformation.include? 'settings'
+          variables[:cache] = Legion::Cache if transformation.include? 'cache'
+          if payload.key?(:task_id) && transformation.include?('task')
+            variables[:task] = Legion::Data::Model::Task[payload[:task_id]]
+          end
+
+          payload[:args] = from_json(template.render(self, variables))
+        else
+          payload[:args] = from_json(transformation)
         end
 
-        payload[:args] = from_json(template.render(self, variables))
         case payload[:args]
         when Hash
           unless payload[:task_id].nil?
             task_update(payload[:task_id], 'transformer.succeeded', function_args: payload[:args])
           end
           send_task(**payload)
-          task_update(payload[:task_id], 'task.queued') unless payload[:task_id].nil?
+          task_update(payload[:task_id], 'task.queued', use_database: false) unless payload[:task_id].nil?
         when Array
           payload[:args].each do |thing|
             new_payload = payload
