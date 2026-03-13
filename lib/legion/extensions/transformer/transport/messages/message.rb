@@ -1,24 +1,34 @@
-module Legion::Extensions::Transformer::Transport::Messages
-  class Message < Legion::Transport::Message
-    def type
-      'task'
-    end
+# frozen_string_literal: true
 
-    def message
-      @options[:function] = function.values[:name]
-      @options
-    end
+module Legion
+  module Extensions
+    module Transformer
+      module Transport
+        module Messages
+          class Message < Legion::Transport::Message
+            def type
+              'task'
+            end
 
-    def routing_key
-      "#{function.runner.extension.values[:name]}.#{function.runner.values[:name]}.#{function.values[:name]}"
-    end
+            def message
+              @options[:function] = function.values[:name]
+              @options
+            end
 
-    def exchange
-      Legion::Transport::Exchange.new(function.runner.extension.values[:exchange])
-    end
+            def routing_key
+              "#{function.runner.extension.values[:name]}.#{function.runner.values[:name]}.#{function.values[:name]}"
+            end
 
-    def function
-      @function ||= Legion::Data::Model::Function[@options[:function_id]]
+            def exchange
+              Legion::Transport::Exchange.new(function.runner.extension.values[:exchange])
+            end
+
+            def function
+              @function ||= Legion::Data::Model::Function[@options[:function_id]]
+            end
+          end
+        end
+      end
     end
   end
 end

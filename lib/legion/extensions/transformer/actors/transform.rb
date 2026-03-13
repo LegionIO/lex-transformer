@@ -1,20 +1,26 @@
-module Legion::Extensions::Transformer
-  module Actor
-    class Transform < Legion::Extensions::Actors::Subscription
-      def runner_function
-        'transform'
-      end
+# frozen_string_literal: true
 
-      def check_subtask?
-        false
-      end
+module Legion
+  module Extensions
+    module Transformer
+      module Actor
+        class Transform < Legion::Extensions::Actors::Subscription
+          def runner_function
+            'transform'
+          end
 
-      def generate_task?
-        false
-      end
+          def check_subtask?
+            false
+          end
 
-      def use_runner?
-        false
+          def generate_task?
+            false
+          end
+
+          def use_runner?
+            false
+          end
+        end
       end
     end
   end
