@@ -10,22 +10,22 @@ Gem::Specification.new do |spec|
 
   spec.summary       = 'LEX-Transformer is used to transform payloads for the output'
   spec.description   = 'Runs transformer statements against tasks in a relationship'
-  spec.homepage      = 'https://bitbucket.org/legion-io/lex-transformer'
+  spec.homepage      = 'https://github.com/LegionIO/lex-transformer'
   spec.license       = 'MIT'
-  spec.required_ruby_version = Gem::Requirement.new('>= 2.5.0')
+  spec.required_ruby_version = '>= 3.4'
 
   spec.metadata['homepage_uri'] = spec.homepage
-  spec.metadata['source_code_uri'] = 'https://bitbucket.org/legion-io/lex-transformer'
-  spec.metadata['documentation_uri'] = 'https://legionio.atlassian.net/wiki/spaces/LEX/pages/612270222'
-  spec.metadata['changelog_uri'] = 'https://legionio.atlassian.net/wiki/spaces/LEX/pages/614858842'
-  spec.metadata['bug_tracker_uri'] = 'https://bitbucket.org/legion-io/lex-transformer/issues'
+  spec.metadata['source_code_uri'] = 'https://github.com/LegionIO/lex-transformer'
+  spec.metadata['documentation_uri'] = 'https://github.com/LegionIO/lex-transformer'
+  spec.metadata['changelog_uri'] = 'https://github.com/LegionIO/lex-transformer'
+  spec.metadata['bug_tracker_uri'] = 'https://github.com/LegionIO/lex-transformer/issues'
 
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
     `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
   end
   spec.require_paths = ['lib']
 
-  spec.add_dependency 'tilt'
+  spec.add_dependency 'tilt', '>= 2.3'
 
   spec.add_development_dependency 'bundler', '>= 2'
   spec.add_development_dependency 'rake'
