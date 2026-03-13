@@ -18,17 +18,31 @@ Transformations use ERB syntax to map values between services:
 {"message": "New incident assigned to <%= assignee %> with priority <%= severity %>", "from": "PagerDuty"}
 ```
 
-You can call Legion services within transformations:
+You can access Legion services within transformations:
 
 ```json
-{"token": "<%= Legion::Crypt.read('pushover/token') %>", "message": "Hello from Vault"}
+{"token": "<%= crypt.read('pushover/token') %>", "message": "Hello from Vault"}
 ```
+
+If the template string contains no ERB tags (`<%` / `%>`), it is parsed as plain JSON.
+
+### Fan-out (Array Output)
+
+If a template renders to a JSON array, the transformer fans out: one downstream task is created and dispatched per array element. The original task is marked `task.multiplied`.
+
+### Available Template Variables
+
+All payload keys from the triggering task are in scope. Additional variables are injected on demand:
+- `crypt` - `Legion::Crypt` (when template contains `'crypt'`)
+- `settings` - `Legion::Settings` (when template contains `'settings'`)
+- `cache` - `Legion::Cache` (when template contains `'cache'`)
+- `task` - task DB record (when template contains `'task'` and `task_id` is present)
 
 ## Requirements
 
 - Ruby >= 3.4
 - [LegionIO](https://github.com/LegionIO/LegionIO) framework
-- `tilt` gem
+- `tilt` >= 2.3
 
 ## License
 
