@@ -5,6 +5,8 @@ source 'https://rubygems.org'
 gemspec
 
 group :test do
+  gem 'base64'
+  gem 'liquid', '~> 5.0'
   gem 'rake'
   gem 'rspec', '~> 3.13'
   gem 'rspec_junit_formatter'

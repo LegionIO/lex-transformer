@@ -2,6 +2,8 @@
 
 require_relative 'erb'
 require_relative 'static'
+require_relative 'liquid'
+require_relative 'jsonpath'
 
 module Legion
   module Extensions
@@ -38,6 +40,8 @@ module Legion
 
           register(Erb)
           register(Static)
+          register(Liquid)
+          register(Jsonpath)
         end
       end
     end
