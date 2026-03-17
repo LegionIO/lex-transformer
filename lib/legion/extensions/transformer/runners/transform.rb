@@ -1,36 +1,28 @@
 # frozen_string_literal: true
 
-require 'tilt'
+require_relative '../engines/registry'
 
 module Legion
   module Extensions
     module Transformer
       module Runners
         module Transform
-          def transform(transformation:, **payload)
-            payload[:args] = render_transformation(transformation, payload)
+          def transform(transformation:, engine: nil, **payload)
+            payload[:args] = render_transformation(transformation, payload, engine: engine)
             dispatch_transformed(payload)
             generate_task_log(task_id: payload[:task_id], function: 'transform', values: payload) if payload[:debug] && payload.key?(:task_id)
             { success: true, **payload }
           end
 
-          def render_transformation(transformation, payload)
-            if transformation.include?('<%') || transformation.include?('%>')
-              template = Tilt['erb'].new { transformation }
-              variables = build_template_variables(transformation, payload)
-              from_json(template.render(self, variables))
-            else
-              from_json(transformation)
-            end
-          end
+          def render_transformation(transformation, payload, engine: nil)
+            eng = if engine
+                    Engines::Registry.fetch(engine)
+                  else
+                    Engines::Registry.detect(transformation)
+                  end
 
-          def build_template_variables(transformation, payload)
-            variables = { **payload }
-            variables[:crypt] = Legion::Crypt if transformation.include?('crypt')
-            variables[:settings] = Legion::Settings if transformation.include?('settings')
-            variables[:cache] = Legion::Cache if transformation.include?('cache')
-            variables[:task] = Legion::Data::Model::Task[payload[:task_id]] if payload.key?(:task_id) && transformation.include?('task')
-            variables
+            rendered = eng.render(transformation, payload)
+            rendered.is_a?(String) ? from_json(rendered) : rendered
           end
 
           def dispatch_transformed(payload)
@@ -46,7 +38,7 @@ module Legion
 
           def dispatch_multiplied(payload)
             payload[:args].each do |thing|
-              new_payload = payload
+              new_payload = payload.dup
               task = Legion::Runner::Status.generate_task_id(function_args: thing, status: 'task.queued', args: thing, **new_payload)
               new_payload[:task_id] = task[:task_id]
               new_payload[:args] = thing

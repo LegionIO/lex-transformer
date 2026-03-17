@@ -50,27 +50,14 @@ RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
       result = test_class.render_transformation('{"static":true}', { ignored: 'data' })
       expect(result).to eq({ static: true })
     end
-  end
 
-  describe '#build_template_variables' do
-    it 'includes payload keys' do
-      result = test_class.build_template_variables('simple', { key: 'val' })
-      expect(result[:key]).to eq('val')
+    it 'uses explicit engine when provided' do
+      result = test_class.render_transformation('{"key":"value"}', {}, engine: :static)
+      expect(result).to eq({ key: 'value' })
     end
 
-    it 'does not include crypt when not in template' do
-      result = test_class.build_template_variables('no special', {})
-      expect(result).not_to have_key(:crypt)
-    end
-
-    it 'does not include settings when not in template' do
-      result = test_class.build_template_variables('no special', {})
-      expect(result).not_to have_key(:settings)
-    end
-
-    it 'does not include cache when not in template' do
-      result = test_class.build_template_variables('no special', {})
-      expect(result).not_to have_key(:cache)
+    it 'raises on unknown engine' do
+      expect { test_class.render_transformation('{}', {}, engine: :unknown) }.to raise_error(ArgumentError, /Unknown engine/)
     end
   end
 end
