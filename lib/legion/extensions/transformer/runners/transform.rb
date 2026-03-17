@@ -1,17 +1,36 @@
 # frozen_string_literal: true
 
 require_relative '../engines/registry'
+require_relative '../helpers/schema_validator'
 
 module Legion
   module Extensions
     module Transformer
       module Runners
         module Transform
-          def transform(transformation:, engine: nil, **payload)
+          def transform(transformation:, engine: nil, schema: nil, **payload)
             payload[:args] = render_transformation(transformation, payload, engine: engine)
+            if schema
+              validation = Helpers::SchemaValidator.validate(schema: schema, data: payload[:args])
+              return { success: false, status: 'transformer.validation_failed', errors: validation[:errors] } unless validation[:valid]
+            end
             dispatch_transformed(payload)
             generate_task_log(task_id: payload[:task_id], function: 'transform', values: payload) if payload[:debug] && payload.key?(:task_id)
             { success: true, **payload }
+          end
+
+          def transform_chain(steps:, **payload)
+            result = payload
+            steps.each do |step|
+              rendered = render_transformation(step[:transformation], result, engine: step[:engine])
+              rendered = from_json(rendered) if rendered.is_a?(String)
+              if step[:schema]
+                validation = Helpers::SchemaValidator.validate(schema: step[:schema], data: rendered)
+                return { success: false, status: 'transformer.validation_failed', errors: validation[:errors] } unless validation[:valid]
+              end
+              result = result.merge({ args: rendered }.merge(rendered))
+            end
+            { success: true, **result }
           end
 
           def render_transformation(transformation, payload, engine: nil)
