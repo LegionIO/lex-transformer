@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-lib = File.expand_path('lib', __dir__)
-$LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require 'legion/extensions/transformer/version'
+require_relative 'lib/legion/extensions/transformer/version'
 
 Gem::Specification.new do |spec|
   spec.name          = 'lex-transformer'
@@ -10,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.authors       = ['Esity']
   spec.email         = ['matthewdiverson@gmail.com']
 
-  spec.summary       = 'LEX-Transformer is used to transform payloads for the output'
-  spec.description   = 'Runs transformer statements against tasks in a relationship'
+  spec.summary       = 'Payload transformation engine for LegionIO task chains'
+  spec.description   = 'Template-based payload transformation between tasks with multiple engines, schema validation, and composition'
   spec.homepage      = 'https://github.com/LegionIO/lex-transformer'
   spec.license       = 'MIT'
   spec.required_ruby_version = '>= 3.4'
@@ -19,7 +17,7 @@ Gem::Specification.new do |spec|
   spec.metadata['homepage_uri'] = spec.homepage
   spec.metadata['source_code_uri'] = 'https://github.com/LegionIO/lex-transformer'
   spec.metadata['documentation_uri'] = 'https://github.com/LegionIO/lex-transformer'
-  spec.metadata['changelog_uri'] = 'https://github.com/LegionIO/lex-transformer'
+  spec.metadata['changelog_uri'] = 'https://github.com/LegionIO/lex-transformer/blob/main/CHANGELOG.md'
   spec.metadata['bug_tracker_uri'] = 'https://github.com/LegionIO/lex-transformer/issues'
   spec.metadata['rubygems_mfa_required'] = 'true'
 

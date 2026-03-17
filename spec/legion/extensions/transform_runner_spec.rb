@@ -16,7 +16,6 @@ end
 
 require 'legion/extensions/transformer/runners/transform'
 
-# rubocop:disable Metrics/BlockLength
 RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
   let(:test_class) do
     klass = Class.new do
@@ -75,4 +74,3 @@ RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
     end
   end
 end
-# rubocop:enable Metrics/BlockLength
