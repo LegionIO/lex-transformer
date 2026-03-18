@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-03-17
+
+### Added
+- LLM transform engine (`engines/llm.rb`) — provider-agnostic natural language transformation via `Legion::LLM.chat`
+- Registered as `:llm` in engine registry (explicit only, no auto-detection)
+
 ## [0.2.0] - 2026-03-17
 
 ### Added

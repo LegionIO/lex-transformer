@@ -75,8 +75,23 @@ Each step's output merges into the running payload, so subsequent steps can refe
 | Static | `:static` | Default (no ERB markers) | Plain JSON passthrough |
 | Liquid | `:liquid` | Explicit only | Liquid template rendering (`{{ var }}`) |
 | JSONPath | `:jsonpath` | Explicit only | Dot-notation value extraction from payload |
+| LLM | `:llm` | Explicit only | Natural language transformation via Legion::LLM |
 
 Auto-detection selects ERB when the template contains ERB markers, otherwise falls back to Static. Use the `engine:` parameter to force a specific engine.
+
+### LLM Engine
+
+The LLM engine uses natural language instructions as the "template":
+
+```ruby
+client.transform(
+  transformation: "Summarize this webhook payload into a Slack notification with the PR title and author",
+  payload: { action: "opened", pull_request: { title: "Fix auth", user: { login: "alice" } } },
+  engine: :llm
+)
+```
+
+Requires `legion-llm` to be started. Provider-agnostic — uses whatever LLM provider is configured (Ollama, Bedrock, Anthropic, OpenAI, Gemini).
 
 ## Schema Validation
 
