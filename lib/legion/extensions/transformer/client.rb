@@ -32,8 +32,11 @@ module Legion
               return { success: false, status: 'transformer.validation_failed', errors: validation[:errors] } unless validation[:valid]
             end
 
-            result = result.merge(rendered) if rendered.is_a?(Hash)
-            result[:args] = rendered
+            if rendered.is_a?(Hash)
+              result = result.merge({ args: rendered }.merge(rendered))
+            else
+              result[:args] = rendered
+            end
           end
           { success: true, result: result }
         end
@@ -52,7 +55,7 @@ module Legion
           return rendered unless rendered.is_a?(String)
 
           Legion::JSON.load(rendered)
-        rescue ::JSON::ParserError
+        rescue StandardError
           rendered
         end
       end
