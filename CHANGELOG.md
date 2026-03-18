@@ -3,14 +3,20 @@
 ## [0.2.0] - 2026-03-17
 
 ### Added
-- Pluggable engine system with `Engines::Base`, `Engines::Erb`, `Engines::Static`, and `Engines::Registry`
+- Pluggable engine system with abstract `Engines::Base` and `Engines::Registry`
+- 4 template engines: ERB (extracted from runner), Static (JSON passthrough), Liquid, JSONPath (dot-notation extraction)
 - `Engines::Registry.detect` auto-selects ERB or static engine based on template content
-- `render_transformation` now accepts optional `engine:` keyword to force a specific engine
-- `transform` runner accepts optional `engine:` from payload for explicit engine selection
-- 8 new specs covering engine registry, ERB rendering, and static rendering
+- `render_transformation` accepts optional `engine:` keyword to force a specific engine
+- `Helpers::SchemaValidator` validates transformed output against declared schemas (required keys, type checks)
+- `transform` accepts optional `schema:` parameter for post-render validation
+- `transform_chain` method for sequential multi-step pipelines with per-step engine selection and schema validation
+- Standalone `Client` class for framework-independent usage with `transform` and `transform_chain` methods
+- SimpleCov coverage reporting
+- Modern packaging: grouped test dependencies, `require_relative` in gemspec, `rubocop-rspec`
 
 ### Fixed
 - `dispatch_multiplied` payload mutation bug: `new_payload = payload` replaced with `new_payload = payload.dup`
+- Spec filename typo: `tranformer_spec.rb` renamed to `transformer_spec.rb`
 
 ### Changed
 - ERB rendering logic extracted from runner into `Engines::Erb` class

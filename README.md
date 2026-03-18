@@ -1,8 +1,6 @@
 # lex-transformer
 
-Payload transformation engine for [LegionIO](https://github.com/LegionIO/LegionIO). Transforms task payloads between services in a relationship chain using ERB templates via the `tilt` gem. Maps data from one task's output into the format expected by the next task's input.
-
-This is a core LEX required for task relationship transformations.
+Payload transformation engine for [LegionIO](https://github.com/LegionIO/LegionIO). Transforms task payloads between services in a relationship chain using pluggable template engines. Maps data from one task's output into the format expected by the next task's input.
 
 ## Installation
 
@@ -10,39 +8,117 @@ This is a core LEX required for task relationship transformations.
 gem install lex-transformer
 ```
 
-## Usage
+Or add to your Gemfile:
 
-Transformations use ERB syntax to map values between services:
-
-```json
-{"message": "New incident assigned to <%= assignee %> with priority <%= severity %>", "from": "PagerDuty"}
+```ruby
+gem 'lex-transformer'
 ```
 
-You can access Legion services within transformations:
+## Standalone Client
 
-```json
-{"token": "<%= crypt.read('pushover/token') %>", "message": "Hello from Vault"}
+Use the transformer without the full LegionIO framework:
+
+```ruby
+require 'legion/extensions/transformer/client'
+
+client = Legion::Extensions::Transformer::Client.new
+
+# Single transform
+result = client.transform(
+  transformation: '{"greeting":"hello <%= name %>"}',
+  payload: { name: 'world' }
+)
+result[:success] # => true
+result[:result]  # => { greeting: "hello world" }
+
+# With explicit engine
+result = client.transform(
+  transformation: '{"greeting":"hello {{ name }}"}',
+  payload: { name: 'world' },
+  engine: :liquid
+)
+
+# With schema validation
+result = client.transform(
+  transformation: '{"name":"test"}',
+  payload: {},
+  schema: { required_keys: [:name, :email] }
+)
+result[:success] # => false
+result[:status]  # => "transformer.validation_failed"
+result[:errors]  # => ["missing required key: email"]
 ```
 
-If the template string contains no ERB tags (`<%` / `%>`), it is parsed as plain JSON.
+### Transform Chains
 
-### Fan-out (Array Output)
+Pipe data through sequential transformation steps:
 
-If a template renders to a JSON array, the transformer fans out: one downstream task is created and dispatched per array element. The original task is marked `task.multiplied`.
+```ruby
+result = client.transform_chain(
+  steps: [
+    { transformation: '{"user":"<%= login %>"}', schema: { required_keys: [:user] } },
+    { transformation: '{"message":"Welcome, <%= user %>!"}' }
+  ],
+  payload: { login: 'alice' }
+)
+result[:success]        # => true
+result[:result][:args]  # => { message: "Welcome, alice!" }
+```
 
-### Available Template Variables
+Each step's output merges into the running payload, so subsequent steps can reference keys from earlier steps.
 
-All payload keys from the triggering task are in scope. Additional variables are injected on demand:
-- `crypt` - `Legion::Crypt` (when template contains `'crypt'`)
-- `settings` - `Legion::Settings` (when template contains `'settings'`)
-- `cache` - `Legion::Cache` (when template contains `'cache'`)
-- `task` - task DB record (when template contains `'task'` and `task_id` is present)
+## Engines
+
+| Engine | Name | Detection | Description |
+|--------|------|-----------|-------------|
+| ERB | `:erb` | `<%` or `%>` in template | Full ERB template rendering via `tilt` |
+| Static | `:static` | Default (no ERB markers) | Plain JSON passthrough |
+| Liquid | `:liquid` | Explicit only | Liquid template rendering (`{{ var }}`) |
+| JSONPath | `:jsonpath` | Explicit only | Dot-notation value extraction from payload |
+
+Auto-detection selects ERB when the template contains ERB markers, otherwise falls back to Static. Use the `engine:` parameter to force a specific engine.
+
+## Schema Validation
+
+Validate transformed output against a declared schema:
+
+```ruby
+schema = {
+  required_keys: [:name, :email],                    # keys that must be present
+  types: { name: String, email: String, age: Integer } # optional type checks
+}
+```
+
+When validation fails, the transform returns `{ success: false, status: 'transformer.validation_failed', errors: [...] }`.
+
+## Runners
+
+### Transform
+
+#### `transform(transformation:, engine: nil, schema: nil, **payload)`
+
+Renders the transformation template against the payload, optionally validates the result, then dispatches:
+
+- Hash result: routes to next task (`task.queued`)
+- Array result: fan-out via `dispatch_multiplied` (one task per element, marked `task.multiplied`)
+- Schema failure: `transformer.validation_failed`, no dispatch
+
+#### `transform_chain(steps:, **payload)`
+
+Sequential pipeline. Each step has `:transformation`, optional `:engine`, optional `:schema`. Output of step N feeds into step N+1. Stops on first schema failure.
+
+## Transport
+
+- **Exchange**: `task` (inherits from `Legion::Transport::Exchanges::Task`)
+- **Queue**: `task.transform`
+- **Routing keys**: `task.subtask`, `task.subtask.transform`
 
 ## Requirements
 
 - Ruby >= 3.4
-- [LegionIO](https://github.com/LegionIO/LegionIO) framework
+- [LegionIO](https://github.com/LegionIO/LegionIO) framework (for AMQP actor mode)
 - `tilt` >= 2.3
+- Standalone Client works without the framework
 
 ## License
 
