@@ -10,7 +10,7 @@ Legion Extension that transforms task payloads between services in a relationshi
 
 **GitHub**: https://github.com/LegionIO/lex-transformer
 **License**: MIT
-**Version**: 0.1.4
+**Version**: 0.2.1
 
 ## Architecture
 
