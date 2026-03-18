@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'legion/extensions/transformer/version'
+require_relative 'transformer/client'
 
 module Legion
   module Extensions
