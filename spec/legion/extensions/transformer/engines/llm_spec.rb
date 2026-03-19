@@ -153,6 +153,46 @@ RSpec.describe Legion::Extensions::Transformer::Engines::Llm do
           expect(result[:error]).to eq('timeout')
         end
       end
+
+      context 'with model/provider/temperature kwargs' do
+        it 'passes model to Legion::LLM.chat' do
+          expect(Legion::LLM).to receive(:chat).with(
+            hash_including(model: 'ollama/llama3')
+          ).and_return(LlmChatResponse.new('{"ok":true}'))
+          engine.render('Transform', { data: 1 }, model: 'ollama/llama3')
+        end
+
+        it 'passes provider to Legion::LLM.chat' do
+          expect(Legion::LLM).to receive(:chat).with(
+            hash_including(provider: 'bedrock')
+          ).and_return(LlmChatResponse.new('{"ok":true}'))
+          engine.render('Transform', { data: 1 }, provider: 'bedrock')
+        end
+
+        it 'passes temperature to Legion::LLM.chat' do
+          expect(Legion::LLM).to receive(:chat).with(
+            hash_including(temperature: 0.1)
+          ).and_return(LlmChatResponse.new('{"ok":true}'))
+          engine.render('Transform', { data: 1 }, temperature: 0.1)
+        end
+
+        it 'passes system_prompt to Legion::LLM.chat' do
+          expect(Legion::LLM).to receive(:chat).with(
+            hash_including(system_prompt: 'You are a JSON transformer')
+          ).and_return(LlmChatResponse.new('{"ok":true}'))
+          engine.render('Transform', { data: 1 }, system_prompt: 'You are a JSON transformer')
+        end
+
+        it 'does not pass nil options to Legion::LLM.chat' do
+          expect(Legion::LLM).to receive(:chat) do |**kwargs|
+            expect(kwargs).not_to have_key(:model)
+            expect(kwargs).not_to have_key(:provider)
+            expect(kwargs).not_to have_key(:temperature)
+            LlmChatResponse.new('{"ok":true}')
+          end
+          engine.render('Transform', { data: 1 })
+        end
+      end
     end
 
     context 'when Legion::LLM is not started' do
