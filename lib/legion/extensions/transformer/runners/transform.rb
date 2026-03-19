@@ -8,8 +8,11 @@ module Legion
     module Transformer
       module Runners
         module Transform
-          def transform(transformation:, engine: nil, schema: nil, **payload)
-            payload[:args] = render_transformation(transformation, payload, engine: engine)
+          def transform(transformation:, engine: nil, schema: nil, engine_options: {}, **payload)
+            payload[:args] = render_transformation(transformation, payload, engine: engine, engine_options: engine_options)
+
+            return payload[:args] if payload[:args].is_a?(Hash) && payload[:args][:success] == false
+
             if schema
               validation = Helpers::SchemaValidator.validate(schema: schema, data: payload[:args])
               return { success: false, status: 'transformer.validation_failed', errors: validation[:errors] } unless validation[:valid]
@@ -22,8 +25,12 @@ module Legion
           def transform_chain(steps:, **payload)
             result = payload
             steps.each do |step|
-              rendered = render_transformation(step[:transformation], result, engine: step[:engine])
+              step_opts = step[:engine_options] || {}
+              rendered = render_transformation(step[:transformation], result, engine: step[:engine], engine_options: step_opts)
               rendered = from_json(rendered) if rendered.is_a?(String)
+
+              return rendered if rendered.is_a?(Hash) && rendered[:success] == false
+
               if step[:schema]
                 validation = Helpers::SchemaValidator.validate(schema: step[:schema], data: rendered)
                 return { success: false, status: 'transformer.validation_failed', errors: validation[:errors] } unless validation[:valid]
@@ -33,14 +40,16 @@ module Legion
             { success: true, **result }
           end
 
-          def render_transformation(transformation, payload, engine: nil)
+          def render_transformation(transformation, payload, engine: nil, engine_options: {})
             eng = if engine
                     Engines::Registry.fetch(engine)
                   else
                     Engines::Registry.detect(transformation)
                   end
 
-            rendered = eng.render(transformation, payload)
+            rendered = eng.render(transformation, payload, **engine_options)
+            return rendered if rendered.is_a?(Hash) && rendered[:success] == false
+
             rendered.is_a?(String) ? from_json(rendered) : rendered
           end
 
