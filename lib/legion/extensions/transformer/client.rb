@@ -7,10 +7,12 @@ module Legion
   module Extensions
     module Transformer
       class Client
-        def transform(transformation:, payload:, engine: nil, schema: nil)
+        def transform(transformation:, payload:, engine: nil, schema: nil, engine_options: {})
           eng = resolve_engine(engine, transformation)
-          rendered = eng.render(transformation, payload)
+          rendered = eng.render(transformation, payload, **engine_options)
           rendered = parse_rendered(rendered)
+
+          return rendered if rendered.is_a?(Hash) && rendered[:success] == false
 
           if schema
             validation = Helpers::SchemaValidator.validate(schema: schema, data: rendered)
@@ -24,8 +26,11 @@ module Legion
           result = payload.dup
           steps.each do |step|
             eng = resolve_engine(step[:engine], step[:transformation])
-            rendered = eng.render(step[:transformation], result)
+            step_opts = step[:engine_options] || {}
+            rendered = eng.render(step[:transformation], result, **step_opts)
             rendered = parse_rendered(rendered)
+
+            return rendered if rendered.is_a?(Hash) && rendered[:success] == false
 
             if step[:schema]
               validation = Helpers::SchemaValidator.validate(schema: step[:schema], data: rendered)

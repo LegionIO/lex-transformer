@@ -209,5 +209,76 @@ RSpec.describe Legion::Extensions::Transformer::Client do
         expect(result[:result][:args]).to include(name: 'Alice', greeting: 'hi')
       end
     end
+
+    context 'with engine_options in chain steps' do
+      it 'passes per-step engine_options to the engine' do
+        result = client.transform_chain(
+          steps:   [
+            { transformation: '{"name":"Alice"}', engine: :static, engine_options: {} },
+            { transformation: '{"greeting":"hi <%= name %>"}', engine: :erb, engine_options: {} }
+          ],
+          payload: {}
+        )
+        expect(result[:success]).to be true
+      end
+
+      it 'bubbles up failure hashes in chain' do
+        failure = { success: false, error: 'timeout' }
+        static_engine = Legion::Extensions::Transformer::Engines::Registry.fetch(:static)
+        allow(static_engine).to receive(:render).and_return(failure)
+
+        result = client.transform_chain(
+          steps:   [
+            { transformation: '{}', engine: :static }
+          ],
+          payload: {}
+        )
+        expect(result[:success]).to be false
+        expect(result[:error]).to eq('timeout')
+      end
+    end
+  end
+
+  describe 'engine_options parameter' do
+    context 'with engine_options' do
+      it 'passes engine_options through to the engine render call' do
+        llm_engine = Legion::Extensions::Transformer::Engines::Registry.fetch(:erb)
+        expect(llm_engine).to receive(:render).with(
+          '{"val":"<%= num %>"}',
+          { num: 42 },
+          extra: 'opt'
+        ).and_call_original
+
+        client.transform(
+          transformation: '{"val":"<%= num %>"}',
+          payload:        { num: 42 },
+          engine:         :erb,
+          engine_options: { extra: 'opt' }
+        )
+      end
+
+      it 'defaults engine_options to empty hash' do
+        result = client.transform(
+          transformation: '{"key":"val"}',
+          payload:        {}
+        )
+        expect(result[:success]).to be true
+      end
+
+      it 'bubbles up engine failure hashes without schema validation' do
+        failure = { success: false, error: 'timeout', message: 'max retries exhausted' }
+        static_engine = Legion::Extensions::Transformer::Engines::Registry.fetch(:static)
+        allow(static_engine).to receive(:render).and_return(failure)
+
+        result = client.transform(
+          transformation: '{}',
+          payload:        {},
+          engine:         :static,
+          schema:         { required_keys: [:impossible] }
+        )
+        expect(result[:success]).to be false
+        expect(result[:error]).to eq('timeout')
+      end
+    end
   end
 end
