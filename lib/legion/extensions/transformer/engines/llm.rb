@@ -80,10 +80,32 @@ module Legion
 
           def call_llm(prompt, payload, opts, attempt)
             context = Legion::JSON.dump(payload)
+
+            return call_structured(prompt, context, opts) if opts[:structured] && opts[:schema] && structured_available?
+
             full_prompt = build_prompt(prompt, context, attempt)
+            full_prompt = inject_schema_into_prompt(full_prompt, opts[:schema]) if opts[:structured] && opts[:schema]
 
             llm_opts = build_llm_opts(opts)
             Legion::LLM.chat(message: full_prompt, **llm_opts)
+          end
+
+          def structured_available?
+            Legion::LLM.respond_to?(:structured)
+          end
+
+          def call_structured(prompt, context, opts)
+            llm_opts = build_llm_opts(opts)
+            Legion::LLM.structured(
+              message: "#{prompt}\n\nPayload:\n```json\n#{context}\n```",
+              schema:  opts[:schema],
+              **llm_opts
+            )
+          end
+
+          def inject_schema_into_prompt(prompt, schema)
+            schema_json = Legion::JSON.dump(schema)
+            "#{prompt}\n\nYour response MUST conform to this JSON schema:\n```json\n#{schema_json}\n```"
           end
 
           def build_prompt(prompt, context, attempt)

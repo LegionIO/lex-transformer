@@ -127,7 +127,7 @@ RSpec.describe Legion::Extensions::Transformer::Engines::Llm do
           call_count = 0
           allow(Legion::LLM).to receive(:chat) do
             call_count += 1
-            raise RuntimeError, 'authentication failed'
+            raise 'authentication failed'
           end
 
           expect { engine.render('Transform', { data: 1 }, max_retries: 2) }.to raise_error(RuntimeError, 'authentication failed')
@@ -191,6 +191,69 @@ RSpec.describe Legion::Extensions::Transformer::Engines::Llm do
             LlmChatResponse.new('{"ok":true}')
           end
           engine.render('Transform', { data: 1 })
+        end
+      end
+
+      context 'with structured output' do
+        let(:schema) do
+          {
+            type:       'object',
+            properties: {
+              summary: { type: 'string' },
+              status:  { type: 'string' }
+            },
+            required:   %w[summary status]
+          }
+        end
+
+        context 'when Legion::LLM supports structured' do
+          before do
+            allow(Legion::LLM).to receive(:respond_to?).and_call_original
+            allow(Legion::LLM).to receive(:respond_to?).with(:structured).and_return(true)
+          end
+
+          it 'calls Legion::LLM.structured when structured: true and schema provided' do
+            expect(Legion::LLM).to receive(:structured).with(
+              hash_including(schema: schema)
+            ).and_return(LlmChatResponse.new('{"summary":"ok","status":"success"}'))
+
+            result = engine.render('Summarize', { logs: [] }, structured: true, schema: schema)
+            expect(result).to include('"summary"')
+          end
+
+          it 'passes model and provider to structured call' do
+            expect(Legion::LLM).to receive(:structured).with(
+              hash_including(model: 'claude-sonnet-4-20250514', provider: 'anthropic', schema: schema)
+            ).and_return(LlmChatResponse.new('{"summary":"ok","status":"success"}'))
+
+            engine.render('Summarize', { logs: [] },
+                          structured: true, schema: schema,
+                          model: 'claude-sonnet-4-20250514', provider: 'anthropic')
+          end
+        end
+
+        context 'when Legion::LLM does not support structured' do
+          before do
+            allow(Legion::LLM).to receive(:respond_to?).and_call_original
+            allow(Legion::LLM).to receive(:respond_to?).with(:structured).and_return(false)
+          end
+
+          it 'falls back to prompt-based with schema in prompt' do
+            expect(Legion::LLM).to receive(:chat).with(
+              hash_including(message: a_string_including('JSON schema'))
+            ).and_return(LlmChatResponse.new('{"summary":"ok","status":"success"}'))
+
+            engine.render('Summarize', { logs: [] }, structured: true, schema: schema)
+          end
+        end
+
+        it 'falls back to prompt-based when structured: true but no schema' do
+          expect(Legion::LLM).to receive(:chat).and_return(
+            LlmChatResponse.new('{"result":"ok"}')
+          )
+          expect(Legion::LLM).not_to receive(:structured)
+
+          engine.render('Transform', { data: 1 }, structured: true)
         end
       end
     end
