@@ -292,7 +292,7 @@ RSpec.describe Legion::Extensions::Transformer::Client do
   describe '#transform with named definitions + conditions' do
     let(:conditioner_client_class) do
       Class.new do
-        def evaluate(conditions:, values:)
+        def evaluate(conditions:, values:) # rubocop:disable Lint/UnusedMethodArgument
           if values[:allowed]
             { passed: true }
           else

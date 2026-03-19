@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0] - 2026-03-19
+
+### Added
+- LLM engine error handling with categorized retry (timeout/network retry, auth errors raise, provider errors return failure)
+- LLM engine model/provider/temperature/system_prompt kwargs via `engine_options`
+- LLM engine structured output support (`structured: true` + `schema:`)
+- LLM engine JSON response validation with correction prompt on retry
+- Settings-based LLM defaults (`lex-transformer.llm.*`)
+- Named transform definitions via Settings (`lex-transformer.definitions.*`)
+- `Definitions` class for Settings-based definition lookup
+- `name:` parameter on `Client#transform` for named definition execution
+- `engine_options:` parameter on `Client#transform` and `Client#transform_chain`
+- Conditioner integration for named definitions with conditions
+- LLM failure hash passthrough (no dispatch on engine failure)
+- Integration specs for LLM engine with client, chain, and named definitions
+
+### Changed
+- All engine `render` signatures accept `**opts` (backward-compatible, non-LLM engines ignore)
+
 ## [0.2.1] - 2026-03-17
 
 ### Added

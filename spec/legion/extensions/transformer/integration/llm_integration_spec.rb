@@ -56,8 +56,8 @@ RSpec.describe 'LLM Engine Integration' do
 
       result = client.transform(
         transformation: 'Summarize this data',
-        payload: { logs: %w[line1 line2] },
-        engine: :llm
+        payload:        { logs: %w[line1 line2] },
+        engine:         :llm
       )
 
       expect(result[:success]).to be true
@@ -71,8 +71,8 @@ RSpec.describe 'LLM Engine Integration' do
 
       client.transform(
         transformation: 'Transform',
-        payload: { data: 1 },
-        engine: :llm,
+        payload:        { data: 1 },
+        engine:         :llm,
         engine_options: { model: 'ollama/llama3', temperature: 0.1 }
       )
     end
@@ -82,8 +82,8 @@ RSpec.describe 'LLM Engine Integration' do
 
       result = client.transform(
         transformation: 'Transform',
-        payload: { data: 1 },
-        engine: :llm,
+        payload:        { data: 1 },
+        engine:         :llm,
         engine_options: { max_retries: 0 }
       )
 
@@ -98,9 +98,9 @@ RSpec.describe 'LLM Engine Integration' do
 
       result = client.transform(
         transformation: 'Extract user',
-        payload: { raw: 'data' },
-        engine: :llm,
-        schema: { required_keys: %i[name email] }
+        payload:        { raw: 'data' },
+        engine:         :llm,
+        schema:         { required_keys: %i[name email] }
       )
 
       expect(result[:success]).to be false
@@ -115,7 +115,7 @@ RSpec.describe 'LLM Engine Integration' do
       )
 
       result = client.transform_chain(
-        steps: [
+        steps:   [
           { transformation: '{"name":"<%= user %>"}', engine: :erb },
           { transformation: 'Generate a greeting for the person', engine: :llm }
         ],
@@ -134,7 +134,7 @@ RSpec.describe 'LLM Engine Integration' do
       end
 
       client.transform_chain(
-        steps: [
+        steps:   [
           { transformation: 'Step 1', engine: :llm, engine_options: { model: 'model_a' } },
           { transformation: 'Step 2', engine: :llm, engine_options: { model: 'model_b' } }
         ],
@@ -149,7 +149,7 @@ RSpec.describe 'LLM Engine Integration' do
       allow(Legion::LLM).to receive(:chat).and_raise(Timeout::Error)
 
       result = client.transform_chain(
-        steps: [
+        steps:   [
           { transformation: 'Fail here', engine: :llm, engine_options: { max_retries: 0 } },
           { transformation: '{"should":"not run"}', engine: :static }
         ],
@@ -167,10 +167,10 @@ RSpec.describe 'LLM Engine Integration' do
         .with('test_llm_def')
         .and_return({
                       transformation: 'Summarize the input',
-                      engine: :llm,
+                      engine:         :llm,
                       engine_options: { model: 'ollama/llama3', temperature: 0.2 },
-                      schema: nil,
-                      conditions: nil
+                      schema:         nil,
+                      conditions:     nil
                     })
 
       allow(Legion::Extensions::Transformer::Definitions).to receive(:merge_options) do |defn, **overrides|
@@ -184,7 +184,7 @@ RSpec.describe 'LLM Engine Integration' do
       ).and_return(LlmChatResponse.new('{"summary":"done"}'))
 
       result = client.transform(
-        name: 'test_llm_def',
+        name:    'test_llm_def',
         payload: { logs: ['entry'] }
       )
 
@@ -198,8 +198,8 @@ RSpec.describe 'LLM Engine Integration' do
       ).and_return(LlmChatResponse.new('{"summary":"overridden"}'))
 
       result = client.transform(
-        name: 'test_llm_def',
-        payload: { logs: ['entry'] },
+        name:           'test_llm_def',
+        payload:        { logs: ['entry'] },
         engine_options: { model: 'claude-sonnet-4-20250514' }
       )
 

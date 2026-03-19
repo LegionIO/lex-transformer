@@ -9,13 +9,13 @@ module Legion
     DEFINITIONS = {
       'summarize_logs' => {
         'transformation' => 'Summarize these logs',
-        'engine' => 'llm',
+        'engine'         => 'llm',
         'engine_options' => { 'model' => 'ollama/llama3', 'temperature' => 0.1 },
-        'schema' => { 'required_keys' => %w[summary status] }
+        'schema'         => { 'required_keys' => %w[summary status] }
       },
-      'extract_name' => {
+      'extract_name'   => {
         'transformation' => '{"name":"<%= full_name %>"}',
-        'engine' => 'erb'
+        'engine'         => 'erb'
       }
     }.freeze
 
