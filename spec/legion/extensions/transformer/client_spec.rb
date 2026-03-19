@@ -289,6 +289,66 @@ RSpec.describe Legion::Extensions::Transformer::Client do
     end
   end
 
+  describe '#transform with named definitions + conditions' do
+    let(:conditioner_client_class) do
+      Class.new do
+        def evaluate(conditions:, values:)
+          if values[:allowed]
+            { passed: true }
+          else
+            { passed: false }
+          end
+        end
+      end
+    end
+
+    before do
+      stub_const('Legion::Extensions::Conditioner::Client', conditioner_client_class)
+
+      allow(Legion::Extensions::Transformer::Definitions).to receive(:fetch)
+        .with('guarded_transform')
+        .and_return({
+                      transformation: '{"result":"done"}',
+                      engine:         :static,
+                      engine_options: {},
+                      schema:         nil,
+                      conditions:     { 'payload_has_key' => 'allowed' }
+                    })
+
+      allow(Legion::Extensions::Transformer::Definitions).to receive(:merge_options)
+        .and_return({})
+    end
+
+    it 'executes transform when conditions pass' do
+      result = client.transform(
+        name:    'guarded_transform',
+        payload: { allowed: true }
+      )
+      expect(result[:success]).to be true
+      expect(result[:result]).to eq(result: 'done')
+    end
+
+    it 'returns conditions_not_met when conditions fail' do
+      result = client.transform(
+        name:    'guarded_transform',
+        payload: { allowed: false }
+      )
+      expect(result[:success]).to be false
+      expect(result[:reason]).to eq('conditions_not_met')
+    end
+
+    it 'skips conditions when conditioner is unavailable' do
+      hide_const('Legion::Extensions::Conditioner::Client')
+
+      result = client.transform(
+        name:    'guarded_transform',
+        payload: { allowed: false }
+      )
+      # Without conditioner, conditions are skipped, transform executes
+      expect(result[:success]).to be true
+    end
+  end
+
   describe 'engine_options parameter' do
     context 'with engine_options' do
       it 'passes engine_options through to the engine render call' do
