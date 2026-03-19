@@ -2,12 +2,15 @@
 
 require_relative 'engines/registry'
 require_relative 'helpers/schema_validator'
+require_relative 'definitions'
 
 module Legion
   module Extensions
     module Transformer
       class Client
-        def transform(transformation:, payload:, engine: nil, schema: nil, engine_options: {})
+        def transform(payload:, transformation: nil, engine: nil, schema: nil, engine_options: {}, name: nil)
+          return transform_by_name(name: name, payload: payload, engine_options: engine_options) if transformation.nil? && name
+
           eng = resolve_engine(engine, transformation)
           rendered = eng.render(transformation, payload, **engine_options)
           rendered = parse_rendered(rendered)
@@ -47,6 +50,38 @@ module Legion
         end
 
         private
+
+        def transform_by_name(name:, payload:, engine_options: {})
+          definition = Definitions.fetch(name)
+          return { success: false, error: 'definition_not_found' } unless definition
+
+          if definition[:conditions] && conditioner_available?
+            cond_result = evaluate_conditions(definition[:conditions], payload)
+            return { success: false, reason: 'conditions_not_met' } unless cond_result
+          end
+
+          merged_opts = Definitions.merge_options(definition, **engine_options)
+
+          transform(
+            transformation: definition[:transformation],
+            payload:        payload,
+            engine:         definition[:engine],
+            schema:         definition[:schema],
+            engine_options: merged_opts
+          )
+        end
+
+        def conditioner_available?
+          defined?(Legion::Extensions::Conditioner::Client)
+        end
+
+        def evaluate_conditions(conditions, payload)
+          client = Legion::Extensions::Conditioner::Client.new
+          result = client.evaluate(conditions: conditions, values: payload)
+          result[:passed]
+        rescue StandardError
+          true
+        end
 
         def resolve_engine(engine_name, transformation)
           if engine_name

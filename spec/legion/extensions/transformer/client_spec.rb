@@ -239,6 +239,56 @@ RSpec.describe Legion::Extensions::Transformer::Client do
     end
   end
 
+  describe '#transform with named definitions' do
+    before do
+      allow(Legion::Extensions::Transformer::Definitions).to receive(:fetch)
+        .with('extract_greeting')
+        .and_return({
+                      transformation: '{"greeting":"hello <%= name %>"}',
+                      engine:         :erb,
+                      engine_options: {},
+                      schema:         nil,
+                      conditions:     nil
+                    })
+
+      allow(Legion::Extensions::Transformer::Definitions).to receive(:fetch)
+        .with('nonexistent')
+        .and_return(nil)
+
+      allow(Legion::Extensions::Transformer::Definitions).to receive(:merge_options) do |defn, **overrides|
+        (defn[:engine_options] || {}).merge(overrides)
+      end
+    end
+
+    it 'looks up definition by name and executes transform' do
+      result = client.transform(
+        name:    'extract_greeting',
+        payload: { name: 'world' }
+      )
+      expect(result[:success]).to be true
+      expect(result[:result]).to eq(greeting: 'hello world')
+    end
+
+    it 'returns failure when definition not found' do
+      result = client.transform(
+        name:    'nonexistent',
+        payload: {}
+      )
+      expect(result[:success]).to be false
+      expect(result[:error]).to eq('definition_not_found')
+    end
+
+    it 'allows transformation: to take precedence over name:' do
+      result = client.transform(
+        transformation: '{"direct":"call"}',
+        payload:        {},
+        name:           'extract_greeting'
+      )
+      expect(result[:success]).to be true
+      expect(result[:result]).to eq(direct: 'call')
+    end
+  end
+
   describe 'engine_options parameter' do
     context 'with engine_options' do
       it 'passes engine_options through to the engine render call' do
