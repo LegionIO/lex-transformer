@@ -11,7 +11,7 @@ module Legion
             :llm
           end
 
-          def render(prompt, payload)
+          def render(prompt, payload, **opts)
             raise 'Legion::LLM is not available or not started' unless defined?(Legion::LLM) && Legion::LLM.respond_to?(:started?) && Legion::LLM.started?
 
             context = Legion::JSON.dump(payload)

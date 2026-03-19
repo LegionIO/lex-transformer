@@ -11,7 +11,7 @@ module Legion
             :jsonpath
           end
 
-          def render(expression, payload)
+          def render(expression, payload, **_opts)
             extract(expression, payload)
           end
 

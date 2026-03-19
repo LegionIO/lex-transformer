@@ -12,7 +12,7 @@ module Legion
             :erb
           end
 
-          def render(template, payload)
+          def render(template, payload, **_opts)
             tilt_template = Tilt['erb'].new { template }
             variables = build_variables(template, payload)
             tilt_template.render(Object.new, variables)

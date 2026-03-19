@@ -11,7 +11,7 @@ module Legion
             :liquid
           end
 
-          def render(template, payload)
+          def render(template, payload, **_opts)
             require 'liquid'
             liquid_template = ::Liquid::Template.parse(template)
             liquid_template.render(stringify_keys(payload))
