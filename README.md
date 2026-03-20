@@ -38,6 +38,14 @@ result = client.transform(
   engine: :liquid
 )
 
+# With engine options (passed through to the engine)
+result = client.transform(
+  transformation: 'Summarize this in one sentence',
+  payload: { text: 'Long article...' },
+  engine: :llm,
+  engine_options: { model: 'claude-opus-4-6', temperature: 0.3 }
+)
+
 # With schema validation
 result = client.transform(
   transformation: '{"name":"test"}',
@@ -47,6 +55,9 @@ result = client.transform(
 result[:success] # => false
 result[:status]  # => "transformer.validation_failed"
 result[:errors]  # => ["missing required key: email"]
+
+# By named definition (loaded from Legion::Settings)
+result = client.transform(name: 'my_template', payload: { foo: 'bar' })
 ```
 
 ### Transform Chains
@@ -106,11 +117,34 @@ schema = {
 
 When validation fails, the transform returns `{ success: false, status: 'transformer.validation_failed', errors: [...] }`.
 
+## Named Definitions
+
+Transform definitions can be registered in settings under `lex-transformer.definitions.<name>` and referenced by name:
+
+```json
+{
+  "lex-transformer": {
+    "definitions": {
+      "slack_notify": {
+        "transformation": "{\"text\":\"<%= title %> by <%= author %>\"}",
+        "engine": "erb"
+      }
+    }
+  }
+}
+```
+
+```ruby
+result = client.transform(name: 'slack_notify', payload: { title: 'PR merged', author: 'alice' })
+```
+
+If a definition includes `conditions:`, the conditioner client is evaluated first and the transform is skipped on failure.
+
 ## Runners
 
 ### Transform
 
-#### `transform(transformation:, engine: nil, schema: nil, **payload)`
+#### `transform(transformation:, engine: nil, schema: nil, engine_options: {}, name: nil, **payload)`
 
 Renders the transformation template against the payload, optionally validates the result, then dispatches:
 

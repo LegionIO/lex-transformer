@@ -6,11 +6,11 @@
 
 ## Purpose
 
-Legion Extension that transforms task payloads between services in a relationship chain. Uses pluggable template engines (ERB, Static, Liquid, JSONPath, LLM) to map data from one task's output into the format expected by the next task's input. Supports single-hash output (1:1 dispatch), array output (fan-out/multiply), schema validation, and sequential transform chains. Requires `legion-data` (`data_required? true`).
+Legion Extension that transforms task payloads between services in a relationship chain. Uses pluggable template engines (ERB, Static, Liquid, JSONPath, LLM) to map data from one task's output into the format expected by the next task's input. Supports named transform definitions (Settings-based), `engine_options:` passthrough, single-hash output (1:1 dispatch), array output (fan-out/multiply), schema validation, and sequential transform chains. Requires `legion-data` (`data_required? true`).
 
 **GitHub**: https://github.com/LegionIO/lex-transformer
 **License**: MIT
-**Version**: 0.2.1
+**Version**: 0.3.0
 
 ## Architecture
 
@@ -30,18 +30,19 @@ Legion::Extensions::Transformer
 │   └── SchemaValidator    # Validates transform output against required_keys/types schema
 ├── Runners/
 │   └── Transform          # Executes template-based payload transformation
-│       ├── transform             # Entry point: render + dispatch or validate
-│       ├── transform_chain       # Sequential pipeline: N steps, output feeds next
-│       ├── render_transformation # Engine dispatch (ERB/Static/Liquid/JSONPath/LLM)
+│       ├── transform             # Entry point: render + dispatch or validate; accepts engine_options:
+│       ├── transform_chain       # Sequential pipeline: N steps, output feeds next; per-step engine_options
+│       ├── render_transformation # Engine dispatch (ERB/Static/Liquid/JSONPath/LLM) with engine_options
 │       ├── build_template_variables # Inject crypt/settings/cache/task into scope
 │       ├── dispatch_transformed  # Route Hash (single) or Array (fan-out) results
 │       ├── dispatch_multiplied   # Fan-out: create a new task per array element
 │       └── send_task             # Publish transformed payload to next runner
+├── Definitions            # Named transform definitions loaded from Settings (lex-transformer.definitions.*)
 ├── Transport/
 │   ├── Exchanges/Task     # Publishes to the task exchange
 │   ├── Queues/Transform   # Subscribes to transformation queue
 │   └── Messages/Message   # Transform request message format
-└── Client                 # Standalone client: transform + transform_chain (uses Engines::Registry directly)
+└── Client                 # Standalone client: transform + transform_chain + transform_by_name
 ```
 
 ## Key Files
@@ -51,7 +52,8 @@ Legion::Extensions::Transformer
 | `lib/legion/extensions/transformer.rb` | Entry point (`data_required? true`) |
 | `lib/legion/extensions/transformer/runners/transform.rb` | Core transformation logic |
 | `lib/legion/extensions/transformer/actors/transform.rb` | AMQP subscription actor |
-| `lib/legion/extensions/transformer/client.rb` | Standalone client (transform, transform_chain) |
+| `lib/legion/extensions/transformer/client.rb` | Standalone client (transform, transform_chain, transform_by_name) |
+| `lib/legion/extensions/transformer/definitions.rb` | Named definition loader from Settings (fetch, names, merge_options) |
 | `lib/legion/extensions/transformer/engines/registry.rb` | Engine name -> class lookup + auto-detection |
 | `lib/legion/extensions/transformer/helpers/schema_validator.rb` | Output schema validation |
 | `lib/legion/extensions/transformer/transport.rb` | Transport setup |
@@ -79,6 +81,23 @@ The LLM engine requires `legion-llm` to be started; it is provider-agnostic (Oll
 | `settings` | Template string contains `'settings'` |
 | `cache` | Template string contains `'cache'` |
 | `task` | Template string contains `'task'` and payload has `task_id` |
+
+## Named Transform Definitions
+
+`Definitions` loads named transform configurations from `Legion::Settings[:lex_transformer][:definitions]`. Each definition is a hash with `:transformation`, optional `:engine`, `:schema`, `:engine_options`, and `:conditions` keys.
+
+**`Definitions.fetch(name)`** — returns the named definition hash (symbolized) or `nil`.
+**`Definitions.names`** — returns array of defined names.
+**`Definitions.merge_options(definition, **overrides)`** — merges caller engine_options over definition defaults.
+
+Client usage:
+
+```ruby
+# Define in settings: lex-transformer.definitions.my_template: { transformation: "...", engine: "erb" }
+result = client.transform(name: 'my_template', payload: { foo: 'bar' })
+```
+
+If a definition includes `conditions:` (a lex-conditioner condition hash), the conditioner client is called first — the transform is skipped if conditions fail.
 
 ## Schema Validation
 
@@ -124,11 +143,11 @@ result[:result]  # => { x: "hello" }
 
 ```bash
 bundle install
-bundle exec rspec     # 86 examples, 0 failures
+bundle exec rspec     # 121 examples, 0 failures
 bundle exec rubocop   # 0 offenses
 ```
 
-Spec files: `spec/legion/extensions/tranformer_spec.rb` (note: typo in filename is intentional in repo), `spec/legion/extensions/transform_runner_spec.rb`
+Spec files include: `tranformer_spec.rb` (note: typo in filename), `transform_runner_spec.rb`, `definitions_spec.rb`, `client_spec.rb`, per-engine specs, `transform_chain_spec.rb`, `transform_schema_spec.rb`, and `llm_integration_spec.rb`.
 
 ---
 
