@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1] - 2026-03-22
+
+### Changed
+- Add sub-gem runtime dependencies: legion-cache, legion-crypt, legion-data, legion-json, legion-logging, legion-settings, legion-transport
+- Replace inline Legion::Logging and Legion::JSON stubs in spec_helper with real sub-gem helpers
+- Build Helpers::Lex stub from real sub-gem helper modules in spec_helper
+- Add Actors::Subscription and Helpers::Task stubs to spec_helper for actor load-time resolution
+- Remove redundant inline Helpers::Lex/Task stubs from runner spec files
+
 ## [0.3.0] - 2026-03-19
 
 ### Added

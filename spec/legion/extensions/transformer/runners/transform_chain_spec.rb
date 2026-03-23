@@ -4,16 +4,6 @@ require 'spec_helper'
 require 'tilt'
 require 'json'
 
-# Stub framework helpers
-module Legion
-  module Extensions
-    module Helpers
-      module Lex; end
-      module Task; end
-    end
-  end
-end
-
 require 'legion/extensions/transformer/runners/transform'
 
 RSpec.describe Legion::Extensions::Transformer::Runners::Transform, '#transform_chain' do

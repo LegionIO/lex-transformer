@@ -4,28 +4,33 @@ require 'simplecov'
 SimpleCov.start
 
 require 'bundler/setup'
-require 'json'
+require 'legion/logging'
+require 'legion/settings'
+require 'legion/cache/helper'
+require 'legion/crypt/helper'
+require 'legion/data/helper'
+require 'legion/json/helper'
+require 'legion/transport'
 
-unless defined?(Legion::Logging)
-  module Legion
-    module Logging
-      def self.info(*); end
-      def self.debug(*); end
-      def self.warn(*); end
-      def self.error(*); end
-    end
-  end
-end
-
-unless defined?(Legion::JSON)
-  module Legion
-    module JSON
-      def self.load(str)
-        ::JSON.parse(str, symbolize_names: true)
+module Legion
+  module Extensions
+    module Helpers
+      module Lex
+        include Legion::Logging::Helper
+        include Legion::Settings::Helper
+        include Legion::Cache::Helper
+        include Legion::Crypt::Helper
+        include Legion::Data::Helper
+        include Legion::JSON::Helper
+        include Legion::Transport::Helper
       end
 
-      def self.dump(obj)
-        ::JSON.generate(obj)
+      module Task; end unless defined?(Task)
+    end
+
+    module Actors
+      class Subscription
+        include Helpers::Lex
       end
     end
   end
