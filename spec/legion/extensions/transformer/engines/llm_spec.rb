@@ -194,6 +194,33 @@ RSpec.describe Legion::Extensions::Transformer::Engines::Llm do
         end
       end
 
+      context 'with caller identity' do
+        it 'passes default caller to Legion::LLM.chat when not provided' do
+          expect(Legion::LLM).to receive(:chat).with(
+            hash_including(caller: { extension: 'lex-transformer', mode: :transform })
+          ).and_return(LlmChatResponse.new('{"ok":true}'))
+          engine.render('Transform', { data: 1 })
+        end
+
+        it 'passes caller from opts to Legion::LLM.chat when provided' do
+          caller_id = { extension: 'lex-synapse', operation: 'propose' }
+          expect(Legion::LLM).to receive(:chat).with(
+            hash_including(caller: caller_id)
+          ).and_return(LlmChatResponse.new('{"ok":true}'))
+          engine.render('Transform', { data: 1 }, caller: caller_id)
+        end
+
+        it 'passes caller to Legion::LLM.structured' do
+          allow(Legion::LLM).to receive(:respond_to?).and_call_original
+          allow(Legion::LLM).to receive(:respond_to?).with(:structured).and_return(true)
+          schema = { type: 'object', properties: { summary: { type: 'string' } } }
+          expect(Legion::LLM).to receive(:structured).with(
+            hash_including(caller: { extension: 'lex-transformer', mode: :transform })
+          ).and_return(LlmChatResponse.new('{"summary":"ok"}'))
+          engine.render('Summarize', { data: 1 }, structured: true, schema: schema)
+        end
+      end
+
       context 'with structured output' do
         let(:schema) do
           {

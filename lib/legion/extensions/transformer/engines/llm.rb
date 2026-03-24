@@ -136,6 +136,7 @@ module Legion
             llm_opts[:provider] = opts[:provider] if opts[:provider]
             llm_opts[:temperature] = opts[:temperature] if opts[:temperature]
             llm_opts[:system_prompt] = opts[:system_prompt] if opts[:system_prompt]
+            llm_opts[:caller] = opts.fetch(:caller, { extension: 'lex-transformer', mode: :transform })
             llm_opts
           end
 

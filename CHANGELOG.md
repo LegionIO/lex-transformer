@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2] - 2026-03-23
+
+### Changed
+- LLM engine passes `caller:` identity to `Legion::LLM.chat` and `Legion::LLM.structured`; defaults to `{ extension: 'lex-transformer', mode: :transform }` when not provided by upstream caller (e.g. lex-synapse)
+
 ## [0.3.1] - 2026-03-22
 
 ### Changed
