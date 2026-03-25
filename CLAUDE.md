@@ -143,7 +143,7 @@ result[:result]  # => { x: "hello" }
 
 ```bash
 bundle install
-bundle exec rspec     # 121 examples, 0 failures
+bundle exec rspec     # 130 examples, 0 failures
 bundle exec rubocop   # 0 offenses
 ```
 
