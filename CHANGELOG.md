@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Fix race condition in Transport module: lazy extend at build time prevents `uninitialized constant Legion::Extensions::Transport` during parallel extension boot
+
 ## [0.3.2] - 2026-03-23
 
 ### Changed
