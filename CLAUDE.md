@@ -10,7 +10,7 @@ Legion Extension that transforms task payloads between services in a relationshi
 
 **GitHub**: https://github.com/LegionIO/lex-transformer
 **License**: MIT
-**Version**: 0.3.0
+**Version**: 0.3.3
 
 ## Architecture
 
@@ -70,7 +70,7 @@ Legion::Extensions::Transformer
 
 Auto-detection: ERB when template contains `<%` or `%>`, otherwise Static. Pass `engine:` to force a specific engine.
 
-The LLM engine requires `legion-llm` to be started; it is provider-agnostic (Ollama, Bedrock, Anthropic, OpenAI, Gemini).
+The LLM engine requires `legion-llm` to be started; it is provider-agnostic (Ollama, Bedrock, Anthropic, OpenAI, Gemini). The LLM engine passes `caller:` identity to `Legion::LLM.chat`/`structured`; defaults to `{ extension: 'lex-transformer', mode: :transform }` when not provided by the upstream caller (e.g. lex-synapse).
 
 ## Template Variables Available in ERB
 
@@ -140,6 +140,10 @@ result[:result]  # => { x: "hello" }
 | `legion-data` | Required — task record creation for fan-out |
 
 ## Testing
+
+## Known Behaviour Notes
+
+- The `Transport` module uses lazy `extend` at build time. This prevents `uninitialized constant Legion::Extensions::Transport` errors during parallel extension boot where multiple extensions extend the same module concurrently.
 
 ```bash
 bundle install
