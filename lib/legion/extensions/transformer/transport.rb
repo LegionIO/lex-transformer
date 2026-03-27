@@ -5,7 +5,9 @@ module Legion
     module Transformer
       module Transport
         def self.build
-          if defined?(::Legion::Extensions::Transport) && !@_extended
+          unless @_extended
+            return unless defined?(::Legion::Extensions::Transport)
+
             extend ::Legion::Extensions::Transport
 
             @_extended = true
