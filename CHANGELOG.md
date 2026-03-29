@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.5] - 2026-03-28
+
+### Fixed
+- Transport module: replace invalid `super` call in `self.build` with explicit `Legion::Extensions::Transport.instance_method(:build).bind(self).call`, fixing `NoMethodError: super: no superclass method 'build'` boot crash
+
 ## [0.3.4] - 2026-03-27
 
 ### Fixed
