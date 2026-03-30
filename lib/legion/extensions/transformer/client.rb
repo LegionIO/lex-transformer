@@ -79,7 +79,7 @@ module Legion
           client = Legion::Extensions::Conditioner::Client.new
           result = client.evaluate(conditions: conditions, values: payload)
           result[:passed]
-        rescue StandardError
+        rescue StandardError => _e
           true
         end
 
@@ -95,7 +95,7 @@ module Legion
           return rendered unless rendered.is_a?(String)
 
           Legion::JSON.load(rendered)
-        rescue StandardError
+        rescue StandardError => _e
           rendered
         end
       end

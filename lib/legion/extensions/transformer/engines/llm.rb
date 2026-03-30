@@ -52,7 +52,7 @@ module Legion
 
             settings = begin
               Legion::Settings.dig('lex-transformer', 'llm')
-            rescue StandardError
+            rescue StandardError => _e
               nil
             end
             return {} unless settings.is_a?(Hash)
@@ -65,9 +65,9 @@ module Legion
             content = extract_response(chat)
             validate_json(content)
             content
-          rescue Timeout::Error, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET
+          rescue Timeout::Error, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET => _e
             :retry
-          rescue ::JSON::ParserError
+          rescue ::JSON::ParserError => _e
             @last_raw = content
             :retry
           rescue RuntimeError => e

@@ -12,7 +12,7 @@ module Legion
 
             @_extended = true
           end
-          Legion::Extensions::Transport.instance_method(:build).bind(self).call
+          Legion::Extensions::Transport.instance_method(:build).bind_call(self)
         end
 
         def self.additional_e_to_q
