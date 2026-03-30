@@ -30,7 +30,7 @@ module Legion
             return nil unless defined?(Legion::Settings)
 
             Legion::Settings.dig('lex-transformer', 'definitions')
-          rescue StandardError
+          rescue StandardError => _e
             nil
           end
 

@@ -6,7 +6,7 @@ require_relative 'transformer/client'
 module Legion
   module Extensions
     module Transformer
-      extend Legion::Extensions::Core if Legion::Extensions.const_defined? :Core
+      extend Legion::Extensions::Core if Legion::Extensions.const_defined? :Core, false
 
       def self.data_required?
         true
