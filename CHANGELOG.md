@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.7] - 2026-04-13
+
+### Added
+- `:engine` to `send_task` whitelist — transformer now forwards the explicit engine parameter from the relationship row to the downstream dispatch message
+
 ## [0.3.6] - 2026-03-30
 
 ### Changed
