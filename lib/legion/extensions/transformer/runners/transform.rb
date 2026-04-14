@@ -77,7 +77,7 @@ module Legion
 
           def send_task(**opts)
             payload = {}
-            %i[task_id relationship_id trigger_function_id runner_class function_id function chain_id debug args].each do |thing|
+            %i[task_id relationship_id trigger_function_id runner_class function_id function chain_id debug engine args].each do |thing|
               payload[thing] = opts[thing] if opts.key? thing
             end
 
