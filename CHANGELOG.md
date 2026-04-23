@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.8] - 2026-04-23
+
+### Fixed
+- Transport module: replace lazy `extend` pattern with standard eager `require` + `extend`, fixing `NameError: uninitialized constant Transport::Queues` when lex-transformer boots before `Legion::Extensions::Transport` is loaded (fixes #8)
+
 ## [0.3.7] - 2026-04-13
 
 ### Added

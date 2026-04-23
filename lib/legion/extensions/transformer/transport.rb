@@ -1,19 +1,14 @@
 # frozen_string_literal: true
 
+require 'legion/extensions/transport'
+
 module Legion
   module Extensions
     module Transformer
       module Transport
-        def self.build
-          unless @_extended
-            return unless defined?(::Legion::Extensions::Transport)
+        extend Legion::Extensions::Transport
 
-            extend ::Legion::Extensions::Transport
-
-            @_extended = true
-          end
-          Legion::Extensions::Transport.instance_method(:build).bind_call(self)
-        end
+        build
 
         def self.additional_e_to_q
           [
