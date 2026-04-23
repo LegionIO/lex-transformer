@@ -7,6 +7,7 @@ module Legion
     module Transformer
       module Transport
         extend Legion::Extensions::Transport
+        build
 
         def self.additional_e_to_q
           [
