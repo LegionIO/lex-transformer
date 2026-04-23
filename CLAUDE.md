@@ -10,7 +10,7 @@ Legion Extension that transforms task payloads between services in a relationshi
 
 **GitHub**: https://github.com/LegionIO/lex-transformer
 **License**: MIT
-**Version**: 0.3.3
+**Version**: 0.3.8
 
 ## Architecture
 
@@ -140,10 +140,6 @@ result[:result]  # => { x: "hello" }
 | `legion-data` | Required — task record creation for fan-out |
 
 ## Testing
-
-## Known Behaviour Notes
-
-- The `Transport` module uses lazy `extend` at build time. This prevents `uninitialized constant Legion::Extensions::Transport` errors during parallel extension boot where multiple extensions extend the same module concurrently.
 
 ```bash
 bundle install
