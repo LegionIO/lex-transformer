@@ -8,7 +8,7 @@ Payload transformation for [LegionIO](https://github.com/LegionIO/LegionIO). The
 gem 'lex-transformer', '~> 0.4'
 ```
 
-Ruby 3.4+ is required. This release uses `legion-settings >= 1.5.0`, `legion-data >= 1.11.0`, `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the foundation releases before this extension. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission; durable handoffs additionally require connected, migrated Legion Data and the Tasker outbox relay.
+Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.3`, `legion-data >= 1.11.0` (migrations through 144), `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the foundation releases before this extension. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission; durable handoffs additionally require connected, migrated Legion Data and the Tasker outbox relay.
 
 ## Standalone client
 
@@ -86,8 +86,10 @@ Definitions may contain `transformation`, `engine`, `engine_options`, `schema`, 
 | `llm.max_retries` | `1` | Retries after transient errors/invalid JSON |
 | `llm.retry_delay_seconds` | `1` | Delay between LLM retries |
 | `llm.caller` | `{extension: 'lex-transformer', mode: 'transform'}` | Default LLM attribution |
+| `execution.max_fanout` | `1000` | Local admission limit on output and child count |
+| `execution.max_depth` | `100` | Local admission limit on task/child depth |
 
-Task statuses, routes, publication policy, depth and fanout limits are shared settings under `task_execution`, not duplicated extension settings. Default limits are `execution.max_fanout: 1000` and `execution.max_depth: 100`. The default transform binding is `routes.transform: task.subtask.transform`.
+Depth and fanout limits are dynamic local policy under `extensions.transformer.execution`. Task statuses, message types, metadata fields and routes are immutable wire identities owned by `Legion::Transport::TaskProtocol`; the transform route is always `task.subtask.transform`. Strict publication policy belongs to `transport.task_publication`. Settings are process-local, not distributed state: changing local policy cannot rename persisted statuses or reinterpret a recorded transformation on replay.
 
 Engine grants must be Boolean values, not strings or additive arrays. Set unwanted engine keys to `false`; omission retains their inherited setting. Use symbol keys in Ruby overlays (Legion JSON configuration is already symbolized). Duplicate string/symbol spellings are rejected rather than allowing an inherited grant to shadow a denial. Restrictive request overlays therefore work without changing Legion Settings' established additive-array semantics.
 
@@ -109,7 +111,7 @@ LLM engine options include `model`, `provider`, `temperature`, `system_prompt`, 
 
 ## Schema boundary
 
-This is a field/type validator, **not a complete JSON Schema implementation**. Supported forms are `required_keys`/`types` and the equivalent JSON-style `required`/`properties.<field>.type`. Every object in a fanout is checked. A missing required field or wrong type returns `transformer.validation_failed` by default.
+This is a field/type validator, **not a complete JSON Schema implementation**. Supported forms are `required_keys`/`types` and the equivalent JSON-style `required`/`properties.<field>.type`. Every object in a fanout is checked. A missing required field or wrong type returns `transformer.validation_failed`.
 
 Supported type names are `string`, `integer`, `number`, `float`, `boolean`, `object`/`hash`, `array`, and `null`/`nilclass`; Ruby classes such as `String`, `Integer`, `Hash`, and `Numeric` also work. Names are case-insensitive. Unsupported types fail clearly rather than silently disabling checks.
 
@@ -118,7 +120,7 @@ Supported type names are `string`, `integer`, `number`, `float`, `boolean`, `obj
 The actor is an orchestration stage (`use_runner? false`): it does not claim or complete the eventual target runner. It accepts the same transform/chain arguments plus canonical task metadata. Business data belongs in `args`; transformed values cannot overwrite routing, policy identity, or lineage.
 
 - A persisted single-output task retains its original `task_id`, parent/master lineage, policy context, schema, engine options, schedule/occurrence, correlation and definition revision.
-- The stage records its validated result and revision in `tasks.transformation_result`, then records the target dispatch transactionally. A replay reuses that record even if the template subsequently changes.
+- The stage records its validated result and revision in `tasks.transformation_result`, then records the target dispatch transactionally. A replay reuses that record even if the template or local admission policy subsequently changes. Data owns each task's persisted execution-policy snapshot (migration 144), leases and retry timing; Transformer does not override that authority.
 - Fanout creates children with `parent_id` pointing to the logical transform task and preserved master lineage. Atomic `create_task` plus dispatch insertion uses deterministic parent/revision/index identities. Replays do not multiply children. The parent becomes `task.multiplied`, which denotes fanout handoff, **not completion of the child effects**.
 - All durable publication is performed by the Tasker outbox relay. Recording an intent is not a claim of delivery or task completion. Failed publication remains recoverable.
 - Cancelled, expired, terminal, or already-running tasks are not dispatched again. Child depth and fanout bounds are checked before child creation.

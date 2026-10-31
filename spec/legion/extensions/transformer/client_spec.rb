@@ -63,9 +63,16 @@ RSpec.describe Legion::Extensions::Transformer::Client do
     expect(result).to include(success: false)
   end
 
-  it 'enforces the shared fanout bound before returning output' do
-    Legion::Settings.with_overlay(task_execution: { execution: { max_fanout: 1 } }) do
+  it 'reads the local fanout bound dynamically without retaining a restrictive overlay' do
+    Legion::Settings.with_overlay(extensions: { transformer: { execution: { max_fanout: 1 } } }) do
       expect(client.transform(transformation: '[{},{}]', payload: {})).to include(success: false)
+    end
+    expect(client.transform(transformation: '[{},{}]', payload: {})).to include(success: true, result: [{}, {}])
+  end
+
+  it 'rejects invalid local fanout limits instead of disabling the bound' do
+    Legion::Settings.with_overlay(extensions: { transformer: { execution: { max_fanout: 'unlimited' } } }) do
+      expect(client.transform(transformation: '[{}]', payload: {})).to include(success: false, error: 'ArgumentError')
     end
   end
 

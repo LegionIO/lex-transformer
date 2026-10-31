@@ -103,12 +103,12 @@ module Legion
                               envelope[:runner_routing_key].is_a?(String) && !envelope[:runner_routing_key].empty?
             raise ArgumentError, 'target function_id or explicit function and runner_routing_key is required' unless target_id || explicit_target
 
-            max_depth = task_execution_settings.fetch(:execution).fetch(:max_depth)
+            max_depth = transformer_execution_settings.fetch(:max_depth)
             raise ArgumentError, "task depth exceeds #{max_depth}" if envelope.fetch(:depth, 0).to_i > max_depth
           end
 
           def transformer_dispatch(envelope:, result:, persisted:)
-            fields = task_execution_settings.fetch(:protocol).fetch(:metadata_fields).map(&:to_sym)
+            fields = Legion::Transport::TaskProtocol::METADATA_FIELDS
             metadata = envelope.slice(*fields).except(:attempt_id, :execution_token)
             if result.is_a?(Array)
               transformer_fanout(metadata: metadata, result: result, persisted: persisted)
@@ -126,10 +126,10 @@ module Legion
 
           def transformer_fanout(metadata:, result:, persisted:)
             depth = metadata.fetch(:depth, 0).to_i + 1
-            max_depth = task_execution_settings.fetch(:execution).fetch(:max_depth)
+            max_depth = transformer_execution_settings.fetch(:max_depth)
             raise ArgumentError, "fanout depth exceeds #{max_depth}" if depth > max_depth
 
-            max_fanout = task_execution_settings.fetch(:execution).fetch(:max_fanout)
+            max_fanout = transformer_execution_settings.fetch(:max_fanout)
             raise ArgumentError, "transform output exceeds max_fanout #{max_fanout}" if result.length > max_fanout
 
             result.each_with_index do |args, index|
@@ -157,7 +157,7 @@ module Legion
           def transformer_intent(options:, event_key:)
             type = options[:function_id] ? :dynamic : :task
             options = options.merge(routing_key: options.fetch(:runner_routing_key)) if type == :task
-            { event_key: event_key, message_type: task_execution_settings.fetch(:message_types).fetch(type), options: options }
+            { event_key: event_key, message_type: Legion::Transport::TaskProtocol::MESSAGE_TYPES.fetch(type), options: options }
           end
 
           def transformer_publish(options:)

@@ -12,8 +12,9 @@
 - Record transformation output/revision and transactional outbox intents through Legion Data; deterministic child identities prevent replay fanout duplication.
 - Use confirmed `publish!` for ephemeral dispatch and expose its nondurable boundary instead of silently accepting rejected publication.
 - Make ERB trusted-only and disabled by default, with configurable engine allowlist and explicit administrator opt-in.
-- Move LLM retry/default policy to extension settings and log all transformation failures.
-- Require task-execution APIs from Settings 1.5.0, Data 1.11.0, Transport 1.4.32, and Conditioner 0.4.0.
+- Move LLM retry/default policy and dynamic execution depth/fanout limits to extension settings and log all transformation failures.
+- Use Transport-owned immutable protocol/status identities and publication policy; local settings cannot reinterpret persisted transformation outcomes or fanout on replay.
+- Require Settings 1.4.3, Data 1.11.0 (migrations through 144), Transport 1.4.32, and Conditioner 0.4.0.
 
 ### Testing
 - Replace fake Conditioner/settings results and no-op runner stubs with real client, SQLite persistence, and local transport boundary regressions.

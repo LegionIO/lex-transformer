@@ -98,7 +98,7 @@ module Legion
           raise ArgumentError, 'transform output must be a Hash or an Array of Hashes' unless result.is_a?(Hash) || (result.is_a?(Array) && result.all?(Hash))
           return unless result.is_a?(Array)
 
-          limit = task_execution_settings.fetch(:execution).fetch(:max_fanout)
+          limit = transformer_execution_settings.fetch(:max_fanout)
           raise ArgumentError, "transform output exceeds max_fanout #{limit}" if result.length > limit
         end
       end

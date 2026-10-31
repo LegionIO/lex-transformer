@@ -8,7 +8,7 @@ module Legion
     module Transformer
       module Transport
         extend Legion::Extensions::Transport
-        extend Legion::Settings::TaskExecution::Helper
+        extend Legion::Transport::TaskProtocol::Helper
 
         build
 

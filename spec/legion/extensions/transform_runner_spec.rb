@@ -43,22 +43,29 @@ RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
     Legion::Data::TaskExecution.create_task(values: { status: 'transformer.queued' }.merge(values), idempotency_key: SecureRandom.uuid).fetch(:task)
   end
 
-  it 'replays fanout without creating more child tasks or dispatch intents' do
+  it 'replays fanout without reinterpreting durable state through local policy or obsolete identity overrides' do
     parent = task_create
     first = runner.transform(transformation: '[{"id":1},{"id":2}]', task_id: parent[:id], **target)
-    second = runner.transform(transformation: '[{"id":3}]', task_id: parent[:id], **target)
+    second = Legion::Settings.with_overlay(
+      task_execution: { statuses: { multiplied: 'local.multiplied', queued: 'local.queued' } },
+      extensions:     { transformer: { execution: { max_fanout: 1 } } }
+    ) do
+      runner.transform(transformation: '[{"id":3}]', task_id: parent[:id], **target)
+    end
     expect(first).to include(success: true, durable: true)
-    expect(second).to include(success: true, duplicate: true)
+    expect(second).to include(success: true, duplicate: true, status: 'task.multiplied')
     expect(@database[:tasks].where(parent_id: parent[:id]).count).to eq(2)
     dispatches = Legion::Data::TaskExecution.claim_dispatches(owner: 'spec-relay')
     expect(dispatches.map { |dispatch| dispatch[:options][:args] }).to contain_exactly({ id: 1 }, { id: 2 })
     expect(dispatches.map { |dispatch| dispatch[:options][:task_id] }).to match_array(@database[:tasks].where(parent_id: parent[:id]).select_map(:id))
   end
 
-  it 'reuses recorded output and revision when a definition changes before redelivery' do
+  it 'reuses recorded output and revision despite changed definitions and obsolete terminal status overrides' do
     task = task_create
     first = runner.transform(transformation: '{"value":"original"}', task_id: task[:id], **target)
-    second = runner.transform(transformation: '{"value":"changed"}', task_id: task[:id], **target)
+    second = Legion::Settings.with_overlay(task_execution: { statuses: { completed: 'task.queued' } }) do
+      runner.transform(transformation: '{"value":"changed"}', task_id: task[:id], **target)
+    end
     expect(second).to include(result: { value: 'original' }, definition_version: first[:definition_version])
     expect(@database[:task_dispatches].where(task_id: task[:id]).count).to eq(1)
   end
@@ -117,10 +124,30 @@ RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
 
   it 'bounds fanout before creating any child' do
     task = task_create
-    Legion::Settings.with_overlay(task_execution: { execution: { max_fanout: 1 } }) do
+    Legion::Settings.with_overlay(extensions: { transformer: { execution: { max_fanout: 1 } } }) do
       expect(runner.transform(transformation: '[{},{}]', task_id: task[:id], **target)).to include(success: false)
     end
     expect(@database[:tasks].where(parent_id: task[:id]).count).to eq(0)
     expect(@database[:task_dispatches].count).to eq(0)
+  end
+
+  it 'rolls back the stage outcome and fanout when children would exceed the local depth limit' do
+    task = task_create
+    Legion::Settings.with_overlay(extensions: { transformer: { execution: { max_depth: 1 } } }) do
+      expect do
+        runner.transform(transformation: '[{}]', task_id: task[:id], depth: 1, **target)
+      end.to raise_error(Sequel::DatabaseError)
+    end
+    expect(@database[:tasks].where(id: task[:id]).first).to include(status: 'transformer.queued', transformation_result: nil)
+    expect(@database[:tasks].where(parent_id: task[:id]).count).to eq(0)
+    expect(@database[:task_dispatches].count).to eq(0)
+
+    Legion::Settings.with_overlay(extensions: { transformer: { execution: { max_depth: 2 } } }) do
+      expect(runner.transform(transformation: '[{}]', task_id: task[:id], depth: 1, **target))
+        .to include(success: true, durable: true)
+    end
+    expect(@database[:tasks].where(id: task[:id]).get(:status)).to eq('task.multiplied')
+    expect(@database[:tasks].where(parent_id: task[:id]).select_map(:depth)).to eq([2])
+    expect(@database[:task_dispatches].count).to eq(1)
   end
 end
