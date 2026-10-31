@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative '../settings'
 require_relative 'erb'
 require_relative 'static'
 require_relative 'liquid'
@@ -11,39 +12,44 @@ module Legion
     module Transformer
       module Engines
         class Registry
-          ENGINES = {}.freeze
+          extend Legion::Extensions::Transformer::Helpers::Configuration
 
           class << self
-            def register(engine_class)
+            def register(engine_class:)
               @engines ||= {}
               instance = engine_class.new
-              @engines[instance.name] = instance
               @engines[instance.name.to_s] = instance
             end
 
-            def fetch(name)
-              @engines ||= {}
-              @engines[name.to_sym] || @engines[name.to_s] || raise(ArgumentError, "Unknown engine: #{name}")
-            end
-
-            def detect(template)
-              if template.is_a?(String) && (template.include?('<%') || template.include?('%>'))
-                fetch(:erb)
-              else
-                fetch(:static)
+            def fetch(name:)
+              key = name.to_s
+              allowed = settings.fetch(:allowed_engines)
+              unless allowed.is_a?(Hash) && allowed.values.all? { |value| [true, false].include?(value) }
+                raise ArgumentError, 'allowed_engines must be a Hash of Boolean grants'
               end
+              raise ArgumentError, 'allowed_engines contains duplicate logical engine names' if allowed.keys.map(&:to_s).uniq.length != allowed.length
+
+              enabled = allowed.fetch(key.to_sym) { allowed[key] }
+              raise ArgumentError, "engine is not allowed: #{key}" unless enabled == true
+
+              if settings.fetch(:trusted_engines).map(&:to_s).include?(key) && !settings.fetch(:allow_trusted_engines)
+                raise ArgumentError, "engine #{key} executes trusted code; enable allow_trusted_engines only for administrator-owned templates"
+              end
+
+              @engines.fetch(key) { raise ArgumentError, "Unknown engine: #{name}" }
             end
 
-            def reset!
-              @engines = {}
+            def detect(template:)
+              templated = template.is_a?(String) && settings.fetch(:template_markers).any? { |marker| template.include?(marker) }
+              fetch(name: settings.fetch(templated ? :template_engine : :default_engine))
             end
           end
 
-          register(Erb)
-          register(Static)
-          register(Liquid)
-          register(Jsonpath)
-          register(Llm)
+          register(engine_class: Legion::Extensions::Transformer::Engines::Erb)
+          register(engine_class: Legion::Extensions::Transformer::Engines::Static)
+          register(engine_class: Legion::Extensions::Transformer::Engines::Liquid)
+          register(engine_class: Legion::Extensions::Transformer::Engines::Jsonpath)
+          register(engine_class: Legion::Extensions::Transformer::Engines::Llm)
         end
       end
     end

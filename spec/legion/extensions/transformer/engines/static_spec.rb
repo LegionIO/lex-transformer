@@ -12,7 +12,7 @@ RSpec.describe Legion::Extensions::Transformer::Engines::Static do
 
   describe '#render' do
     it 'returns template unchanged' do
-      expect(engine.render('{"key":"value"}', { ignored: true })).to eq('{"key":"value"}')
+      expect(engine.render(template: '{"key":"value"}', payload: { ignored: true })).to eq('{"key":"value"}')
     end
   end
 end

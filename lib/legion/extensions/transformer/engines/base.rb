@@ -5,7 +5,7 @@ module Legion
     module Transformer
       module Engines
         class Base
-          def render(template, payload, **_opts)
+          def render(template:, payload:, **)
             raise NotImplementedError, "#{self.class}#render must be implemented"
           end
 

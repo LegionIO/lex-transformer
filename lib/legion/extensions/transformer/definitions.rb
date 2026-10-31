@@ -1,53 +1,27 @@
 # frozen_string_literal: true
 
+require_relative 'settings'
+
 module Legion
   module Extensions
     module Transformer
       class Definitions
-        class << self
-          def fetch(name)
-            defns = load_definitions
-            return nil unless defns&.key?(name)
+        extend Legion::Extensions::Transformer::Helpers::Configuration
 
-            symbolize_definition(defns[name])
+        class << self
+          def fetch(name:)
+            definitions = settings.fetch(:definitions)
+            raise ArgumentError, 'transformer definitions must be a Hash' unless definitions.is_a?(Hash)
+
+            raw = definitions[name.to_sym] || definitions[name.to_s]
+            return if raw.nil?
+            raise ArgumentError, "transformer definition #{name} must be a Hash" unless raw.is_a?(Hash)
+
+            raw.transform_keys(&:to_sym)
           end
 
           def names
-            defns = load_definitions
-            return [] unless defns
-
-            defns.keys
-          end
-
-          def merge_options(definition, **overrides)
-            base = definition[:engine_options] || {}
-            base.merge(overrides)
-          end
-
-          private
-
-          def load_definitions
-            return nil unless defined?(Legion::Settings)
-
-            Legion::Settings.dig('lex-transformer', 'definitions')
-          rescue StandardError => _e
-            nil
-          end
-
-          def symbolize_definition(raw)
-            defn = {}
-            defn[:transformation] = raw['transformation'] || raw[:transformation]
-            defn[:engine] = (raw['engine'] || raw[:engine])&.to_sym
-            defn[:engine_options] = symbolize_hash(raw['engine_options'] || raw[:engine_options] || {})
-            defn[:schema] = raw['schema'] || raw[:schema]
-            defn[:conditions] = raw['conditions'] || raw[:conditions]
-            defn
-          end
-
-          def symbolize_hash(hash)
-            return {} unless hash.is_a?(Hash)
-
-            hash.transform_keys(&:to_sym)
+            settings.fetch(:definitions).keys
           end
         end
       end

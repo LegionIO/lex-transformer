@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0] - 2026-10-30
+
+### Changed
+- Share one client/actor transformation pipeline with final-output-only chain dispatch and keyword-only engine APIs.
+- Separate engine exceptions from rendered business data, preserving payloads containing `success: false`.
+- Preserve arbitrary transport headers and business keys in the ERB `payload` Hash while exposing only valid, non-keyword Ruby locals.
+- Load named definitions through `extensions.transformer` settings and use the real Conditioner `valid` contract; missing or malformed conditions never fail open.
+- Normalize JSON-backed schema fields and supported type names; reject invalid JSON, scalar output, mixed fanout, and oversized fanout before publication.
+- Preserve canonical policy, lineage, schema, engine, schedule, and correlation metadata across transformation handoffs.
+- Record transformation output/revision and transactional outbox intents through Legion Data; deterministic child identities prevent replay fanout duplication.
+- Use confirmed `publish!` for ephemeral dispatch and expose its nondurable boundary instead of silently accepting rejected publication.
+- Make ERB trusted-only and disabled by default, with configurable engine allowlist and explicit administrator opt-in.
+- Move LLM retry/default policy to extension settings and log all transformation failures.
+- Require task-execution APIs from Settings 1.5.0, Data 1.11.0, Transport 1.4.32, and Conditioner 0.4.0.
+
+### Testing
+- Replace fake Conditioner/settings results and no-op runner stubs with real client, SQLite persistence, and local transport boundary regressions.
+
 ## [0.3.8] - 2026-04-23
 
 ### Fixed

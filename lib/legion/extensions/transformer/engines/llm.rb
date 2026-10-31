@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'timeout'
+require 'legion/json'
+require_relative '../settings'
 require_relative 'base'
 
 module Legion
@@ -8,144 +10,56 @@ module Legion
     module Transformer
       module Engines
         class Llm < Base
-          AUTH_ERRORS = /auth|credentials|forbidden|api.key|unauthorized/i
-          RETRY_SLEEP = 1
+          include Legion::Extensions::Transformer::Helpers::Configuration
 
           def name
             :llm
           end
 
-          def render(prompt, payload, **opts)
-            raise 'Legion::LLM is not available or not started' unless llm_available?
+          def render(template:, payload:, **opts)
+            raise 'Legion::LLM is not available or not started' unless defined?(Legion::LLM) && Legion::LLM.respond_to?(:started?) && Legion::LLM.started?
 
-            @last_raw = nil
-            resolved = resolve_options(opts)
-            max_retries = resolved.delete(:max_retries)
-            attempts = 0
+            options = settings.fetch(:llm).merge(opts)
+            retries = Integer(options.fetch(:max_retries))
+            raise ArgumentError, 'max_retries must not be negative' if retries.negative?
 
+            attempt = 0
             loop do
-              result = attempt_render(prompt, payload, resolved, attempts)
-              return result unless result == :retry
+              content = extract_response(chat: call_llm(prompt: template, payload: payload, opts: options, attempt: attempt))
+              Legion::JSON.load(content)
+              return content
+            rescue Timeout::Error, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET, Legion::JSON::ParseError => e
+              handle_exception(e, level: :warn, handled: attempt < retries)
+              raise if attempt >= retries
 
-              attempts += 1
-              return build_failure if attempts > max_retries
-
-              sleep(RETRY_SLEEP)
+              attempt += 1
+              sleep(options.fetch(:retry_delay_seconds))
+            rescue StandardError => e
+              handle_exception(e, level: :error, handled: false)
+              raise
             end
           end
 
           private
 
-          def llm_available?
-            defined?(Legion::LLM) && Legion::LLM.respond_to?(:started?) && Legion::LLM.started?
-          end
-
-          def resolve_options(opts)
-            defaults = settings_defaults
-            resolved = defaults.merge(opts)
-            resolved[:max_retries] = (resolved[:max_retries] || 1).to_i
-            resolved
-          end
-
-          def settings_defaults
-            return {} unless defined?(Legion::Settings)
-
-            settings = begin
-              Legion::Settings.dig('lex-transformer', 'llm')
-            rescue StandardError => _e
-              nil
-            end
-            return {} unless settings.is_a?(Hash)
-
-            settings.transform_keys(&:to_sym)
-          end
-
-          def attempt_render(prompt, payload, opts, attempt)
-            chat = call_llm(prompt, payload, opts, attempt)
-            content = extract_response(chat)
-            validate_json(content)
-            content
-          rescue Timeout::Error, IOError, Errno::ECONNREFUSED, Errno::ECONNRESET => _e
-            :retry
-          rescue ::JSON::ParserError => _e
-            @last_raw = content
-            :retry
-          rescue RuntimeError => e
-            raise if auth_error?(e)
-
-            { success: false, error: e.class.to_s, message: e.message }
-          rescue StandardError => e
-            { success: false, error: e.class.to_s, message: e.message }
-          end
-
-          def call_llm(prompt, payload, opts, attempt)
+          def call_llm(prompt:, payload:, opts:, attempt:)
             context = Legion::JSON.dump(payload)
-
-            return call_structured(prompt, context, opts) if opts[:structured] && opts[:schema] && structured_available?
-
-            full_prompt = build_prompt(prompt, context, attempt)
-            full_prompt = inject_schema_into_prompt(full_prompt, opts[:schema]) if opts[:structured] && opts[:schema]
-
-            llm_opts = build_llm_opts(opts)
-            Legion::LLM.chat(message: full_prompt, **llm_opts)
-          end
-
-          def structured_available?
-            Legion::LLM.respond_to?(:structured)
-          end
-
-          def call_structured(prompt, context, opts)
-            llm_opts = build_llm_opts(opts)
-            Legion::LLM.structured(
-              message: "#{prompt}\n\nPayload:\n```json\n#{context}\n```",
-              schema:  opts[:schema],
-              **llm_opts
-            )
-          end
-
-          def inject_schema_into_prompt(prompt, schema)
-            schema_json = Legion::JSON.dump(schema)
-            "#{prompt}\n\nYour response MUST conform to this JSON schema:\n```json\n#{schema_json}\n```"
-          end
-
-          def build_prompt(prompt, context, attempt)
-            base = "#{prompt}\n\nPayload:\n```json\n#{context}\n```\n\nRespond with valid JSON only. No explanation, no markdown fences."
-            return base unless attempt.positive?
-
-            "#{base}\n\nIMPORTANT: Your previous response was not valid JSON. Return ONLY a valid JSON object or array, nothing else."
-          end
-
-          def extract_response(chat)
-            content = chat.respond_to?(:content) ? chat.content : chat.to_s
-            content = content.strip
-            content = content.sub(/\A```(?:json)?\n?/, '').sub(/\n?```\z/, '') if content.start_with?('```')
-            content
-          end
-
-          def validate_json(content)
-            ::JSON.parse(content)
-          end
-
-          def auth_error?(error)
-            AUTH_ERRORS.match?(error.message)
-          end
-
-          def build_llm_opts(opts)
-            llm_opts = {}
-            llm_opts[:model] = opts[:model] if opts[:model]
-            llm_opts[:provider] = opts[:provider] if opts[:provider]
-            llm_opts[:temperature] = opts[:temperature] if opts[:temperature]
-            llm_opts[:system_prompt] = opts[:system_prompt] if opts[:system_prompt]
-            llm_opts[:caller] = opts.fetch(:caller, { extension: 'lex-transformer', mode: :transform })
-            llm_opts
-          end
-
-          def build_failure
-            if @last_raw
-              { success: false, error: 'invalid_json', message: 'max retries exhausted', raw: @last_raw }
-            else
-              { success: false, error: 'timeout', message: 'max retries exhausted' }
+            llm_opts = opts.slice(:model, :provider, :temperature, :system_prompt, :caller)
+            if opts[:structured] && opts[:schema] && Legion::LLM.respond_to?(:structured)
+              return Legion::LLM.structured(message: "#{prompt}\n\nPayload:\n```json\n#{context}\n```", schema: opts[:schema], **llm_opts)
             end
+
+            message = "#{prompt}\n\nPayload:\n```json\n#{context}\n```\n\nRespond with valid JSON only. No explanation, no markdown fences."
+            message += '\nReturn ONLY a valid JSON object or array; the previous response was invalid.' if attempt.positive?
+            message += "\n\nJSON schema:\n#{Legion::JSON.dump(opts[:schema])}" if opts[:structured] && opts[:schema]
+            Legion::LLM.chat(message: message, **llm_opts)
+          end
+
+          def extract_response(chat:)
+            content = (chat.respond_to?(:content) ? chat.content : chat.to_s).strip
+            return content unless content.start_with?('```')
+
+            content.sub(/\A```(?:json)?\n?/, '').sub(/\n?```\z/, '')
           end
         end
       end

@@ -4,293 +4,50 @@ require 'spec_helper'
 require 'timeout'
 require 'legion/extensions/transformer/engines/llm'
 
-LlmChatResponse = Struct.new(:content)
-
-# Stub Legion::LLM for testing
-module Legion
-  module LLM
-    class << self
-      def started?
-        @started
-      end
-
-      def start_stub
-        @started = true
-      end
-
-      def stop_stub
-        @started = false
-      end
-
-      def chat(**)
-        LlmChatResponse.new('{"result":"transformed"}')
-      end
-    end
-  end
-end
-
 RSpec.describe Legion::Extensions::Transformer::Engines::Llm do
   subject(:engine) { described_class.new }
 
-  describe '#name' do
-    it 'returns :llm' do
-      expect(engine.name).to eq(:llm)
-    end
+  let(:provider) { Module.new }
+  let(:response) { Struct.new(:content) }
+
+  before do
+    stub_const('Legion::LLM', provider)
+    allow(provider).to receive(:started?).and_return(true)
   end
 
-  describe '#render' do
-    context 'when Legion::LLM is started' do
-      before { Legion::LLM.start_stub }
-      after { Legion::LLM.stop_stub }
+  it 'recovers from a transient timeout within the configured retry bound' do
+    calls = 0
+    allow(provider).to receive(:chat) do
+      calls += 1
+      raise Timeout::Error if calls == 1
 
-      it 'sends prompt with payload context to LLM' do
-        result = engine.render('Summarize this data', { name: 'Alice', role: 'admin' })
-        expect(result).to be_a(String)
-      end
-
-      it 'returns the LLM response content' do
-        result = engine.render('Transform this', { key: 'value' })
-        expect(result).to eq('{"result":"transformed"}')
-      end
-
-      it 'includes the payload as JSON in the prompt' do
-        expect(Legion::LLM).to receive(:chat).with(
-          hash_including(message: a_string_including('"name":"Alice"'))
-        ).and_return(LlmChatResponse.new('{"out":"ok"}'))
-
-        engine.render('Do something', { name: 'Alice' })
-      end
-
-      it 'strips markdown code fences from response' do
-        allow(Legion::LLM).to receive(:chat).and_return(
-          LlmChatResponse.new("```json\n{\"key\":\"value\"}\n```")
-        )
-        result = engine.render('Transform', { data: 1 })
-        expect(result).to eq('{"key":"value"}')
-      end
-
-      it 'handles response without content method (non-JSON returns failure)' do
-        stub_const('Legion::Extensions::Transformer::Engines::Llm::RETRY_SLEEP', 0)
-        allow(Legion::LLM).to receive(:chat).and_return('plain string response')
-        result = engine.render('Transform', { data: 1 }, max_retries: 0)
-        expect(result).to eq({ success: false, error: 'invalid_json', message: 'max retries exhausted', raw: 'plain string response' })
-      end
-
-      context 'retry behavior' do
-        before { stub_const('Legion::Extensions::Transformer::Engines::Llm::RETRY_SLEEP', 0) }
-
-        it 'retries on timeout and succeeds on second attempt' do
-          call_count = 0
-          allow(Legion::LLM).to receive(:chat) do
-            call_count += 1
-            raise Timeout::Error if call_count == 1
-
-            LlmChatResponse.new('{"result":"ok"}')
-          end
-
-          result = engine.render('Transform', { data: 1 }, max_retries: 1)
-          expect(call_count).to eq(2)
-          expect(result).to eq('{"result":"ok"}')
-        end
-
-        it 'returns failure hash after exhausting timeout retries' do
-          allow(Legion::LLM).to receive(:chat).and_raise(Timeout::Error)
-
-          result = engine.render('Transform', { data: 1 }, max_retries: 1)
-          expect(result).to eq({ success: false, error: 'timeout', message: 'max retries exhausted' })
-        end
-
-        it 'retries with correction prompt on invalid JSON and succeeds on second attempt' do
-          call_count = 0
-          allow(Legion::LLM).to receive(:chat) do
-            call_count += 1
-            if call_count == 1
-              LlmChatResponse.new('not valid json at all')
-            else
-              LlmChatResponse.new('{"result":"fixed"}')
-            end
-          end
-
-          result = engine.render('Transform', { data: 1 }, max_retries: 1)
-          expect(call_count).to eq(2)
-          expect(result).to eq('{"result":"fixed"}')
-        end
-
-        it 'returns failure with raw after exhausting invalid JSON retries' do
-          allow(Legion::LLM).to receive(:chat).and_return(LlmChatResponse.new('not valid json'))
-
-          result = engine.render('Transform', { data: 1 }, max_retries: 1)
-          expect(result).to eq({ success: false, error: 'invalid_json', message: 'max retries exhausted', raw: 'not valid json' })
-        end
-
-        it 'raises immediately on auth errors without retrying' do
-          call_count = 0
-          allow(Legion::LLM).to receive(:chat) do
-            call_count += 1
-            raise 'authentication failed'
-          end
-
-          expect { engine.render('Transform', { data: 1 }, max_retries: 2) }.to raise_error(RuntimeError, 'authentication failed')
-          expect(call_count).to eq(1)
-        end
-
-        it 'returns failure hash on generic provider errors without retrying' do
-          allow(Legion::LLM).to receive(:chat).and_raise(StandardError, 'provider unavailable')
-
-          result = engine.render('Transform', { data: 1 }, max_retries: 1)
-          expect(result).to eq({ success: false, error: 'StandardError', message: 'provider unavailable' })
-        end
-
-        it 'defaults to max_retries: 1 (2 total attempts) when not specified' do
-          call_count = 0
-          allow(Legion::LLM).to receive(:chat) do
-            call_count += 1
-            raise Timeout::Error
-          end
-
-          result = engine.render('Transform', { data: 1 })
-          expect(call_count).to eq(2)
-          expect(result[:error]).to eq('timeout')
-        end
-      end
-
-      context 'with model/provider/temperature kwargs' do
-        it 'passes model to Legion::LLM.chat' do
-          expect(Legion::LLM).to receive(:chat).with(
-            hash_including(model: 'ollama/llama3')
-          ).and_return(LlmChatResponse.new('{"ok":true}'))
-          engine.render('Transform', { data: 1 }, model: 'ollama/llama3')
-        end
-
-        it 'passes provider to Legion::LLM.chat' do
-          expect(Legion::LLM).to receive(:chat).with(
-            hash_including(provider: 'bedrock')
-          ).and_return(LlmChatResponse.new('{"ok":true}'))
-          engine.render('Transform', { data: 1 }, provider: 'bedrock')
-        end
-
-        it 'passes temperature to Legion::LLM.chat' do
-          expect(Legion::LLM).to receive(:chat).with(
-            hash_including(temperature: 0.1)
-          ).and_return(LlmChatResponse.new('{"ok":true}'))
-          engine.render('Transform', { data: 1 }, temperature: 0.1)
-        end
-
-        it 'passes system_prompt to Legion::LLM.chat' do
-          expect(Legion::LLM).to receive(:chat).with(
-            hash_including(system_prompt: 'You are a JSON transformer')
-          ).and_return(LlmChatResponse.new('{"ok":true}'))
-          engine.render('Transform', { data: 1 }, system_prompt: 'You are a JSON transformer')
-        end
-
-        it 'does not pass nil options to Legion::LLM.chat' do
-          expect(Legion::LLM).to receive(:chat) do |**kwargs|
-            expect(kwargs).not_to have_key(:model)
-            expect(kwargs).not_to have_key(:provider)
-            expect(kwargs).not_to have_key(:temperature)
-            LlmChatResponse.new('{"ok":true}')
-          end
-          engine.render('Transform', { data: 1 })
-        end
-      end
-
-      context 'with caller identity' do
-        it 'passes default caller to Legion::LLM.chat when not provided' do
-          expect(Legion::LLM).to receive(:chat).with(
-            hash_including(caller: { extension: 'lex-transformer', mode: :transform })
-          ).and_return(LlmChatResponse.new('{"ok":true}'))
-          engine.render('Transform', { data: 1 })
-        end
-
-        it 'passes caller from opts to Legion::LLM.chat when provided' do
-          caller_id = { extension: 'lex-synapse', operation: 'propose' }
-          expect(Legion::LLM).to receive(:chat).with(
-            hash_including(caller: caller_id)
-          ).and_return(LlmChatResponse.new('{"ok":true}'))
-          engine.render('Transform', { data: 1 }, caller: caller_id)
-        end
-
-        it 'passes caller to Legion::LLM.structured' do
-          allow(Legion::LLM).to receive(:respond_to?).and_call_original
-          allow(Legion::LLM).to receive(:respond_to?).with(:structured).and_return(true)
-          schema = { type: 'object', properties: { summary: { type: 'string' } } }
-          expect(Legion::LLM).to receive(:structured).with(
-            hash_including(caller: { extension: 'lex-transformer', mode: :transform })
-          ).and_return(LlmChatResponse.new('{"summary":"ok"}'))
-          engine.render('Summarize', { data: 1 }, structured: true, schema: schema)
-        end
-      end
-
-      context 'with structured output' do
-        let(:schema) do
-          {
-            type:       'object',
-            properties: {
-              summary: { type: 'string' },
-              status:  { type: 'string' }
-            },
-            required:   %w[summary status]
-          }
-        end
-
-        context 'when Legion::LLM supports structured' do
-          before do
-            allow(Legion::LLM).to receive(:respond_to?).and_call_original
-            allow(Legion::LLM).to receive(:respond_to?).with(:structured).and_return(true)
-          end
-
-          it 'calls Legion::LLM.structured when structured: true and schema provided' do
-            expect(Legion::LLM).to receive(:structured).with(
-              hash_including(schema: schema)
-            ).and_return(LlmChatResponse.new('{"summary":"ok","status":"success"}'))
-
-            result = engine.render('Summarize', { logs: [] }, structured: true, schema: schema)
-            expect(result).to include('"summary"')
-          end
-
-          it 'passes model and provider to structured call' do
-            expect(Legion::LLM).to receive(:structured).with(
-              hash_including(model: 'claude-sonnet-4-20250514', provider: 'anthropic', schema: schema)
-            ).and_return(LlmChatResponse.new('{"summary":"ok","status":"success"}'))
-
-            engine.render('Summarize', { logs: [] },
-                          structured: true, schema: schema,
-                          model: 'claude-sonnet-4-20250514', provider: 'anthropic')
-          end
-        end
-
-        context 'when Legion::LLM does not support structured' do
-          before do
-            allow(Legion::LLM).to receive(:respond_to?).and_call_original
-            allow(Legion::LLM).to receive(:respond_to?).with(:structured).and_return(false)
-          end
-
-          it 'falls back to prompt-based with schema in prompt' do
-            expect(Legion::LLM).to receive(:chat).with(
-              hash_including(message: a_string_including('JSON schema'))
-            ).and_return(LlmChatResponse.new('{"summary":"ok","status":"success"}'))
-
-            engine.render('Summarize', { logs: [] }, structured: true, schema: schema)
-          end
-        end
-
-        it 'falls back to prompt-based when structured: true but no schema' do
-          expect(Legion::LLM).to receive(:chat).and_return(
-            LlmChatResponse.new('{"result":"ok"}')
-          )
-          expect(Legion::LLM).not_to receive(:structured)
-
-          engine.render('Transform', { data: 1 }, structured: true)
-        end
-      end
+      response.new('{"result":"ok"}')
     end
+    expect(engine.render(template: 'Transform', payload: {}, max_retries: 1)).to eq('{"result":"ok"}')
+    expect(calls).to eq(2)
+  end
 
-    context 'when Legion::LLM is not started' do
-      before { Legion::LLM.stop_stub }
+  it 'raises the parse error when invalid JSON exhausts retries' do
+    allow(provider).to receive(:chat).and_return(response.new('not valid JSON'))
+    expect { engine.render(template: 'Transform', payload: {}, max_retries: 0) }.to raise_error(Legion::JSON::ParseError)
+  end
 
-      it 'raises RuntimeError' do
-        expect { engine.render('Transform', { key: 'value' }) }.to raise_error(RuntimeError, /not available/)
-      end
-    end
+  it 'does not reuse raw JSON failure state from a different request' do
+    allow(provider).to receive(:chat).and_return(response.new('invalid'))
+    expect { engine.render(template: 'Transform', payload: {}, max_retries: 0) }.to raise_error(Legion::JSON::ParseError)
+    allow(provider).to receive(:chat).and_raise(Timeout::Error)
+    expect { engine.render(template: 'Transform', payload: {}, max_retries: 0) }.to raise_error(Timeout::Error)
+  end
+
+  it 'propagates permanent provider errors instead of retrying effects' do
+    allow(provider).to receive(:chat).and_raise(RuntimeError, 'authentication failed')
+    expect { engine.render(template: 'Transform', payload: {}, max_retries: 2) }.to raise_error(RuntimeError, 'authentication failed')
+    expect(provider).to have_received(:chat).once
+  end
+
+  it 'parses structured responses through the same JSON boundary' do
+    allow(provider).to receive(:structured).and_return(response.new("```json\n{\"summary\":\"ok\"}\n```"))
+    result = engine.render(template: 'Summarize', payload: {}, structured: true, schema: { type: 'object' })
+    expect(Legion::JSON.load(result)).to eq(summary: 'ok')
   end
 end

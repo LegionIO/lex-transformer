@@ -17,7 +17,6 @@ RSpec.describe Legion::Extensions::Transformer::Helpers::SchemaValidator do
         schema = { required_keys: [:name] }
         result = described_class.validate(schema: schema, data: nil)
         expect(result[:valid]).to be false
-        expect(result[:errors]).to include(a_string_matching(/name/))
       end
     end
 

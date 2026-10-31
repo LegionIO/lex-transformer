@@ -27,32 +27,32 @@ RSpec.describe Legion::Extensions::Transformer::Engines::Jsonpath do
     end
 
     it 'extracts top-level key' do
-      expect(engine.render('$.status', payload)).to eq('ok')
+      expect(engine.render(template: '$.status', payload: payload)).to eq('ok')
     end
 
     it 'extracts nested key' do
-      expect(engine.render('$.response.code', payload)).to eq(200)
+      expect(engine.render(template: '$.response.code', payload: payload)).to eq(200)
     end
 
     it 'extracts deeply nested value' do
-      expect(engine.render('$.response.data.users', payload)).to be_an(Array)
-      expect(engine.render('$.response.data.users', payload).size).to eq(2)
+      expect(engine.render(template: '$.response.data.users', payload: payload)).to be_an(Array)
+      expect(engine.render(template: '$.response.data.users', payload: payload).size).to eq(2)
     end
 
     it 'extracts array element by index' do
-      expect(engine.render('$.response.data.users.0.name', payload)).to eq('alice')
+      expect(engine.render(template: '$.response.data.users.0.name', payload: payload)).to eq('alice')
     end
 
     it 'returns nil for missing path' do
-      expect(engine.render('$.nonexistent.path', payload)).to be_nil
+      expect(engine.render(template: '$.nonexistent.path', payload: payload)).to be_nil
     end
 
     it 'works without $ prefix' do
-      expect(engine.render('status', payload)).to eq('ok')
+      expect(engine.render(template: 'status', payload: payload)).to eq('ok')
     end
 
     it 'works with $.prefix' do
-      expect(engine.render('$.status', payload)).to eq('ok')
+      expect(engine.render(template: '$.status', payload: payload)).to eq('ok')
     end
   end
 end

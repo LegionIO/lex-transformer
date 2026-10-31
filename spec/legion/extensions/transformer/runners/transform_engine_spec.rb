@@ -1,85 +1,58 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
-
-module Legion
-  module Extensions
-    module Transformer
-      module Transport
-        module Messages
-          unless defined?(Legion::Extensions::Transformer::Transport::Messages::Message)
-            class Message
-              def initialize(**); end
-
-              def publish; end
-            end
-          end
-        end
-      end
-    end
-  end
-end
-
 require 'legion/extensions/transformer/runners/transform'
+require 'legion/transport/exchanges/task'
 
-RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
-  let(:test_class) do
-    Class.new do
-      include Legion::Extensions::Transformer::Runners::Transform
+RSpec.describe 'Transformer stage publication' do
+  subject(:runner) { Object.new.extend(Legion::Extensions::Transformer::Runners::Transform) }
 
-      def task_update(*_args, **_opts); end
-      def generate_task_log(**_opts); end
+  let(:target) { { function: 'deliver', runner_routing_key: 'test.receiver.deliver', runner_class: 'Test::Receiver' } }
+  let(:received) { [] }
 
-      def from_json(str)
-        Legion::JSON.load(str)
-      rescue StandardError
-        str
-      end
-    end
+  before do
+    Legion::Transport::Connection.setup
+    @channel = Legion::Transport::Connection.session.create_channel
+    @queue = @channel.queue_declare_without_recording_topology('transformer-test-target')
+    @queue.bind('task', routing_key: 'test.receiver.deliver')
+    @queue.subscribe(manual_ack: false) { |_delivery, _properties, body| received << Legion::JSON.load(body) }
   end
 
-  subject { test_class.new }
+  after do
+    @channel.close
+    Legion::Transport::Local.reset!
+  end
 
-  describe '#send_task' do
-    it 'includes engine in the forwarded payload' do
-      message_double = double('Message', publish: true)
-      allow(Legion::Extensions::Transformer::Transport::Messages::Message).to receive(:new).and_return(message_double)
+  around do |example|
+    Legion::Settings.with_overlay(data: { connected: false }, transport: { messages: { encrypt: false } }) { example.run }
+  end
 
-      opts = {
-        task_id:         1,
-        relationship_id: 2,
-        function_id:     3,
-        function:        'transform',
-        chain_id:        4,
-        engine:          'llm',
-        args:            { work_item: { title: 'test' } }
-      }
+  it 'publishes only the final chain output through the real transport' do
+    result = runner.transform(steps: [{ transformation: '{"value":1}' }, { transformation: '{"final":<%= value + 1 %>}' }], **target)
+    expect(result).to include(success: true, result: { final: 2 }, durable: false)
+    expect(received.map { |message| message[:args] }).to eq([{ final: 2 }])
+  end
 
-      subject.send_task(**opts)
+  it 'does not publish malformed JSON or scalar output' do
+    expect(runner.transform(transformation: '{broken', **target)).to include(success: false)
+    expect(runner.transform(transformation: '42', **target)).to include(success: false)
+    expect(received).to be_empty
+  end
 
-      expect(Legion::Extensions::Transformer::Transport::Messages::Message).to have_received(:new) do |**args|
-        expect(args[:engine]).to eq('llm')
-      end
+  it 'executes named conditions with the real Conditioner client and never fails open' do
+    definition = { transformation: '{"accepted":true}', conditions: { all: [{ fact: 'allowed', operator: 'equal', value: true }] } }
+    Legion::Settings.with_overlay(extensions: { transformer: { definitions: { gate: definition } } }) do
+      expect(runner.transform(name: 'gate', args: { allowed: true }, **target)).to include(success: true)
+      expect(runner.transform(name: 'gate', args: { allowed: false }, **target)).to include(success: false)
+      definition[:conditions][:all].first[:operator] = 'invalid'
+      expect(runner.transform(name: 'gate', args: { allowed: true }, **target)).to include(success: false)
     end
+    expect(received.map { |message| message[:args] }).to eq([{ accepted: true }])
+  end
 
-    it 'does not include engine when not present in payload' do
-      message_double = double('Message', publish: true)
-      allow(Legion::Extensions::Transformer::Transport::Messages::Message).to receive(:new).and_return(message_double)
-
-      opts = {
-        task_id:         1,
-        relationship_id: 2,
-        function_id:     3,
-        function:        'transform',
-        chain_id:        4,
-        args:            { work_item: { title: 'test' } }
-      }
-
-      subject.send_task(**opts)
-
-      expect(Legion::Extensions::Transformer::Transport::Messages::Message).to have_received(:new) do |**args|
-        expect(args).not_to have_key(:engine)
-      end
-    end
+  it 'raises a rejected publication rather than reporting a successful handoff' do
+    @channel.close
+    Legion::Transport::Local.reset!
+    expect { runner.transform(transformation: '{}', **target) }.to raise_error(Legion::Transport::PublishRejected)
   end
 end

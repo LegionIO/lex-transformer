@@ -1,53 +1,126 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
-require 'tilt'
-require 'json'
-
+require 'tmpdir'
+require 'sequel'
+require 'sequel/extensions/migration'
 require 'legion/extensions/transformer/runners/transform'
 
 RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
-  let(:test_class) do
-    klass = Class.new do
-      include Legion::Extensions::Transformer::Runners::Transform
+  subject(:runner) { Object.new.extend(described_class) }
 
-      def from_json(str)
-        JSON.parse(str, symbolize_names: true)
-      end
-    end
-    klass.new
+  let(:target) { { function: 'deliver', runner_routing_key: 'test.receiver.deliver', runner_class: 'Test::Receiver' } }
+
+  before(:context) do
+    @directory = Dir.mktmpdir('transformer-replay')
+    @database = Sequel.sqlite(File.join(@directory, 'tasks.db'))
+    migrations = File.join(Gem.loaded_specs.fetch('legion-data').full_gem_path, 'lib/legion/data/migrations')
+    Sequel::Migrator.run(@database, migrations)
+    Sequel::Model.db = @database
+    require 'legion/data/models/task'
   end
 
-  describe '#render_transformation' do
-    it 'renders a static JSON transformation' do
-      result = test_class.render_transformation('{"key":"value"}', {})
-      expect(result).to eq({ key: 'value' })
-    end
+  after(:context) do
+    @database.disconnect
+    FileUtils.remove_entry(@directory)
+  end
 
-    it 'renders an ERB transformation with payload variables' do
-      template = '{"greeting":"hello <%= name %>"}'
-      result = test_class.render_transformation(template, { name: 'world' })
-      expect(result).to eq({ greeting: 'hello world' })
-    end
+  around do |example|
+    previous = Legion::Data::Connection.sequel
+    previous_dataset = Legion::Data::Model::Task.dataset
+    Legion::Data::Connection.sequel = @database
+    Legion::Data::Model::Task.set_dataset(@database[:tasks])
+    @database[:task_dispatches].delete
+    @database[:task_attempts].delete
+    @database[:tasks].delete
+    Legion::Settings.with_overlay(data: { connected: true }) { example.run }
+  ensure
+    Legion::Data::Connection.sequel = previous
+    Legion::Data::Model::Task.set_dataset(previous_dataset)
+  end
 
-    it 'renders ERB with nested payload access' do
-      template = '{"status":"<%= status_code %>"}'
-      result = test_class.render_transformation(template, { status_code: 200 })
-      expect(result).to eq({ status: '200' })
-    end
+  def task_create(**values)
+    Legion::Data::TaskExecution.create_task(values: { status: 'transformer.queued' }.merge(values), idempotency_key: SecureRandom.uuid).fetch(:task)
+  end
 
-    it 'handles transformation without ERB markers as static JSON' do
-      result = test_class.render_transformation('{"static":true}', { ignored: 'data' })
-      expect(result).to eq({ static: true })
-    end
+  it 'replays fanout without creating more child tasks or dispatch intents' do
+    parent = task_create
+    first = runner.transform(transformation: '[{"id":1},{"id":2}]', task_id: parent[:id], **target)
+    second = runner.transform(transformation: '[{"id":3}]', task_id: parent[:id], **target)
+    expect(first).to include(success: true, durable: true)
+    expect(second).to include(success: true, duplicate: true)
+    expect(@database[:tasks].where(parent_id: parent[:id]).count).to eq(2)
+    dispatches = Legion::Data::TaskExecution.claim_dispatches(owner: 'spec-relay')
+    expect(dispatches.map { |dispatch| dispatch[:options][:args] }).to contain_exactly({ id: 1 }, { id: 2 })
+    expect(dispatches.map { |dispatch| dispatch[:options][:task_id] }).to match_array(@database[:tasks].where(parent_id: parent[:id]).select_map(:id))
+  end
 
-    it 'uses explicit engine when provided' do
-      result = test_class.render_transformation('{"key":"value"}', {}, engine: :static)
-      expect(result).to eq({ key: 'value' })
-    end
+  it 'reuses recorded output and revision when a definition changes before redelivery' do
+    task = task_create
+    first = runner.transform(transformation: '{"value":"original"}', task_id: task[:id], **target)
+    second = runner.transform(transformation: '{"value":"changed"}', task_id: task[:id], **target)
+    expect(second).to include(result: { value: 'original' }, definition_version: first[:definition_version])
+    expect(@database[:task_dispatches].where(task_id: task[:id]).count).to eq(1)
+  end
 
-    it 'raises on unknown engine' do
-      expect { test_class.render_transformation('{}', {}, engine: :unknown) }.to raise_error(ArgumentError, /Unknown engine/)
+  it 'preserves policy and lineage while dispatching only final chain output' do
+    parent = task_create
+    task = task_create(parent_id: parent[:id], master_id: parent[:id])
+    metadata = { parent_id: parent[:id], master_id: parent[:id], principal_id: 'principal-1', principal_type: 'service',
+                 worker_id: 'worker-1', tenant_id: 'tenant-1', correlation_id: 'correlation', source: 'scheduler',
+                 schedule_id: 'schedule', occurrence_id: 'occurrence', depth: 1, schema: { required_keys: ['final'] }, engine_options: { custom: true } }
+    outcome = runner.transform(steps:   [{ transformation: '{"initial":"input"}' }, { transformation: '{"final":"<%= initial %>"}' }],
+                               task_id: task[:id], **metadata, **target)
+    expect(outcome).to include(success: true, result: { final: 'input' })
+    dispatches = Legion::Data::TaskExecution.claim_dispatches(owner: 'spec-relay')
+    expect(dispatches.size).to eq(1)
+    expect(dispatches.first[:options]).to include(metadata.merge(task_id: task[:id], args: { final: 'input' }))
+    expect(@database[:tasks].where(id: task[:id]).get(:status)).to eq('task.queued')
+  end
+
+  it 'records schema failure without enqueueing a target' do
+    task = task_create
+    result = runner.transform(transformation: '{"id":"wrong"}', schema: { types: { id: 'integer' } }, task_id: task[:id], **target)
+    expect(result).to include(success: false, status: 'transformer.validation_failed')
+    expect(@database[:task_dispatches].count).to eq(0)
+    expect(@database[:tasks].where(id: task[:id]).get(:status)).to eq('transformer.validation_failed')
+  end
+
+  it 'does not reset an owned target retry when a completed transformation is replayed' do
+    task = task_create
+    runner.transform(transformation: '{"value":"original"}', task_id: task[:id], **target)
+    claim = Legion::Data::TaskExecution.claim_task(task_id: task[:id], owner: 'target')
+    Legion::Data::TaskExecution.complete_task(task_id: task[:id], token: claim[:token], status: 'task.failed', result: { success: false })
+    Legion::Data::TaskExecution.transition_task(task_id: task[:id], token: claim[:token], status: 'task.retry_pending')
+    before_replay = @database[:tasks].where(id: task[:id]).first
+    replay = runner.transform(transformation: '{"value":"changed"}', task_id: task[:id], **target)
+    expect(replay).to include(success: true, duplicate: true, status: 'task.retry_pending', result: { value: 'original' })
+    expect(@database[:tasks].where(id: task[:id]).first).to eq(before_replay)
+    expect(@database[:task_dispatches].count).to eq(1)
+  end
+
+  it 'does not interfere with a target execution claim on stage redelivery' do
+    task = task_create
+    runner.transform(transformation: '{}', task_id: task[:id], **target)
+    claim = Legion::Data::TaskExecution.claim_task(task_id: task[:id], owner: 'target')
+    runner.transform(transformation: '{"value":"changed"}', task_id: task[:id], **target)
+    expect(@database[:tasks].where(id: task[:id]).first).to include(status: 'task.running', execution_token: claim[:token])
+    expect(@database[:task_dispatches].count).to eq(1)
+  end
+
+  it 'does not dispatch cancelled tasks' do
+    task = task_create(cancelled_at: Time.now)
+    expect(runner.transform(transformation: '{}', task_id: task[:id], **target)).to include(success: false, status: 'task.cancelled')
+    expect(@database[:task_dispatches].count).to eq(0)
+    expect(@database[:tasks].where(id: task[:id]).get(:status)).to eq('task.cancelled')
+  end
+
+  it 'bounds fanout before creating any child' do
+    task = task_create
+    Legion::Settings.with_overlay(task_execution: { execution: { max_fanout: 1 } }) do
+      expect(runner.transform(transformation: '[{},{}]', task_id: task[:id], **target)).to include(success: false)
     end
+    expect(@database[:tasks].where(parent_id: task[:id]).count).to eq(0)
+    expect(@database[:task_dispatches].count).to eq(0)
   end
 end
