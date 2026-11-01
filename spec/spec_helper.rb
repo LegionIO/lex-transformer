@@ -15,7 +15,6 @@ require 'legion/extensions/conditioner/client'
 
 FileUtils.mkdir_p('tmp')
 Legion::Logging.setup(log_file: 'tmp/spec.log', log_stdout: false, async: false)
-Legion::Extensions::Transformer.register_settings
 
 RSpec.configure do |config|
   config.example_status_persistence_file_path = '.rspec_status'

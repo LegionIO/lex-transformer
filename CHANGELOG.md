@@ -13,6 +13,7 @@
 - Use confirmed `publish!` for ephemeral dispatch and expose its nondurable boundary instead of silently accepting rejected publication.
 - Make ERB trusted-only and disabled by default, with configurable engine allowlist and explicit administrator opt-in.
 - Move LLM retry/default policy and dynamic execution depth/fanout limits to extension settings and log all transformation failures.
+- Register SDK defaults at startup and read live canonical extension policy without loader caches, bootstrap-on-read or custom settings accessors; preserve denied engines and validated execution limits.
 - Use Transport-owned immutable protocol/status identities and publication policy; local settings cannot reinterpret persisted transformation outcomes or fanout on replay.
 - Require Settings 1.4.3, Data 1.11.0 (migrations through 144), Transport 1.4.32, and Conditioner 0.4.0.
 

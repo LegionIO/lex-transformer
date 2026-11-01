@@ -22,29 +22,14 @@ module Legion
         }
       end
 
-      def self.register_settings
-        loader = Legion::Settings.get
-        return if @settings_loader.equal?(loader)
-
-        Legion::Settings.merge_settings(:extensions, transformer: default_settings)
-        @settings_loader = loader
-      end
-
       module Helpers
         module Configuration
-          include Legion::Settings::Helper
           include Legion::Transport::TaskProtocol::Helper
           include Legion::Logging::Helper
 
           private
 
-          def settings
-            Legion::Extensions::Transformer.register_settings
-            super
-          end
-
-          def transformer_execution_settings
-            execution = settings.fetch(:execution)
+          def transformer_execution_settings(execution:)
             raise ArgumentError, 'transformer execution settings must be a Hash' unless execution.is_a?(Hash)
 
             %i[max_depth max_fanout].each do |name|
@@ -53,12 +38,10 @@ module Legion
             end
             execution
           end
-
-          def derive_settings_segments
-            [:transformer]
-          end
         end
       end
     end
   end
 end
+
+Legion::Settings.merge_settings(:extensions, transformer: Legion::Extensions::Transformer.default_settings)

@@ -103,7 +103,7 @@ module Legion
                               envelope[:runner_routing_key].is_a?(String) && !envelope[:runner_routing_key].empty?
             raise ArgumentError, 'target function_id or explicit function and runner_routing_key is required' unless target_id || explicit_target
 
-            max_depth = transformer_execution_settings.fetch(:max_depth)
+            max_depth = transformer_execution_settings(execution: settings[:execution]).fetch(:max_depth)
             raise ArgumentError, "task depth exceeds #{max_depth}" if envelope.fetch(:depth, 0).to_i > max_depth
           end
 
@@ -126,10 +126,11 @@ module Legion
 
           def transformer_fanout(metadata:, result:, persisted:)
             depth = metadata.fetch(:depth, 0).to_i + 1
-            max_depth = transformer_execution_settings.fetch(:max_depth)
+            execution = transformer_execution_settings(execution: settings[:execution])
+            max_depth = execution.fetch(:max_depth)
             raise ArgumentError, "fanout depth exceeds #{max_depth}" if depth > max_depth
 
-            max_fanout = transformer_execution_settings.fetch(:max_fanout)
+            max_fanout = execution.fetch(:max_fanout)
             raise ArgumentError, "transform output exceeds max_fanout #{max_fanout}" if result.length > max_fanout
 
             result.each_with_index do |args, index|

@@ -8,10 +8,8 @@ module Legion
       module Transport
         module Queues
           class Transform < Legion::Transport::Queue
-            include Legion::Extensions::Transformer::Helpers::Configuration
-
             def queue_name
-              settings.fetch(:queue)
+              Legion::Settings[:extensions][:transformer][:queue]
             end
           end
         end

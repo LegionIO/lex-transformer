@@ -12,8 +12,6 @@ module Legion
     module Transformer
       module Engines
         class Registry
-          extend Legion::Extensions::Transformer::Helpers::Configuration
-
           class << self
             def register(engine_class:)
               @engines ||= {}
@@ -23,7 +21,7 @@ module Legion
 
             def fetch(name:)
               key = name.to_s
-              allowed = settings.fetch(:allowed_engines)
+              allowed = Legion::Settings[:extensions][:transformer][:allowed_engines]
               unless allowed.is_a?(Hash) && allowed.values.all? { |value| [true, false].include?(value) }
                 raise ArgumentError, 'allowed_engines must be a Hash of Boolean grants'
               end
@@ -32,7 +30,8 @@ module Legion
               enabled = allowed.fetch(key.to_sym) { allowed[key] }
               raise ArgumentError, "engine is not allowed: #{key}" unless enabled == true
 
-              if settings.fetch(:trusted_engines).map(&:to_s).include?(key) && !settings.fetch(:allow_trusted_engines)
+              if Legion::Settings[:extensions][:transformer][:trusted_engines].map(&:to_s).include?(key) &&
+                 !Legion::Settings[:extensions][:transformer][:allow_trusted_engines]
                 raise ArgumentError, "engine #{key} executes trusted code; enable allow_trusted_engines only for administrator-owned templates"
               end
 
@@ -40,8 +39,8 @@ module Legion
             end
 
             def detect(template:)
-              templated = template.is_a?(String) && settings.fetch(:template_markers).any? { |marker| template.include?(marker) }
-              fetch(name: settings.fetch(templated ? :template_engine : :default_engine))
+              templated = template.is_a?(String) && Legion::Settings[:extensions][:transformer][:template_markers].any? { |marker| template.include?(marker) }
+              fetch(name: Legion::Settings[:extensions][:transformer][templated ? :template_engine : :default_engine])
             end
           end
 

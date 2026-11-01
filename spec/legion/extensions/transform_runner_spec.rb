@@ -7,7 +7,12 @@ require 'sequel/extensions/migration'
 require 'legion/extensions/transformer/runners/transform'
 
 RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
-  subject(:runner) { Object.new.extend(described_class) }
+  subject(:runner) do
+    stub_const('Legion::Extensions::Transformer::Runners::TransformHarness', Class.new do
+      include Legion::Settings::Helper
+      include Legion::Extensions::Transformer::Runners::Transform
+    end).new
+  end
 
   let(:target) { { function: 'deliver', runner_routing_key: 'test.receiver.deliver', runner_class: 'Test::Receiver' } }
 

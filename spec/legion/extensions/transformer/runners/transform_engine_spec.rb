@@ -5,7 +5,12 @@ require 'legion/extensions/transformer/runners/transform'
 require 'legion/transport/exchanges/task'
 
 RSpec.describe 'Transformer stage publication' do
-  subject(:runner) { Object.new.extend(Legion::Extensions::Transformer::Runners::Transform) }
+  subject(:runner) do
+    stub_const('Legion::Extensions::Transformer::Runners::TransformHarness', Class.new do
+      include Legion::Settings::Helper
+      include Legion::Extensions::Transformer::Runners::Transform
+    end).new
+  end
 
   let(:target) { { function: 'deliver', runner_routing_key: 'test.receiver.deliver', runner_class: 'Test::Receiver' } }
   let(:received) { [] }

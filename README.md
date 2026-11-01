@@ -8,7 +8,7 @@ Payload transformation for [LegionIO](https://github.com/LegionIO/LegionIO). The
 gem 'lex-transformer', '~> 0.4'
 ```
 
-Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.3`, `legion-data >= 1.11.0` (migrations through 144), `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the foundation releases before this extension. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission; durable handoffs additionally require connected, migrated Legion Data and the Tasker outbox relay.
+Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.5`, `legion-data >= 1.11.0` (migrations through 144), `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the foundation releases before this extension. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission; durable handoffs additionally require connected, migrated Legion Data and the Tasker outbox relay.
 
 ## Standalone client
 
@@ -45,7 +45,7 @@ Each step sees previous Hash output merged into the accumulated context and the 
 
 ## Settings and named definitions
 
-Configuration lives at `extensions.transformer`, through `Legion::Settings::Helper`:
+Configuration lives at `extensions.transformer`. Framework runners and actors use their automatically injected `settings` helper; the standalone client, engines, definitions and transport objects read `Legion::Settings[:extensions][:transformer]` directly. Defaults register at startup, not during reads. User configuration and request overlays remain live without a loader cache or custom namespace override:
 
 ```json
 {

@@ -6,11 +6,9 @@ module Legion
   module Extensions
     module Transformer
       class Definitions
-        extend Legion::Extensions::Transformer::Helpers::Configuration
-
         class << self
           def fetch(name:)
-            definitions = settings.fetch(:definitions)
+            definitions = Legion::Settings[:extensions][:transformer][:definitions]
             raise ArgumentError, 'transformer definitions must be a Hash' unless definitions.is_a?(Hash)
 
             raw = definitions[name.to_sym] || definitions[name.to_s]
@@ -21,7 +19,7 @@ module Legion
           end
 
           def names
-            settings.fetch(:definitions).keys
+            Legion::Settings[:extensions][:transformer][:definitions].keys
           end
         end
       end

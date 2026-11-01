@@ -10,7 +10,7 @@ module Legion
     module Transformer
       module Engines
         class Llm < Base
-          include Legion::Extensions::Transformer::Helpers::Configuration
+          include Legion::Logging::Helper
 
           def name
             :llm
@@ -19,7 +19,7 @@ module Legion
           def render(template:, payload:, **opts)
             raise 'Legion::LLM is not available or not started' unless defined?(Legion::LLM) && Legion::LLM.respond_to?(:started?) && Legion::LLM.started?
 
-            options = settings.fetch(:llm).merge(opts)
+            options = Legion::Settings[:extensions][:transformer][:llm].merge(opts)
             retries = Integer(options.fetch(:max_retries))
             raise ArgumentError, 'max_retries must not be negative' if retries.negative?
 

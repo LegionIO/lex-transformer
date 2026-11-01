@@ -9,8 +9,6 @@ module Legion
     module Transformer
       module Engines
         class Erb < Base
-          include Legion::Extensions::Transformer::Helpers::Configuration
-
           RESERVED_LOCALS = %w[
             alias and begin break case class def do else elsif end ensure false for if in module next nil not or
             redo rescue retry return self super then true undef unless until when while yield __FILE__ __LINE__ __ENCODING__
@@ -22,7 +20,7 @@ module Legion
           end
 
           def render(template:, payload:, **)
-            raise ArgumentError, 'ERB requires trusted administrator-owned templates' unless settings.fetch(:allow_trusted_engines)
+            raise ArgumentError, 'ERB requires trusted administrator-owned templates' unless Legion::Settings[:extensions][:transformer][:allow_trusted_engines]
 
             tilt_template = Tilt['erb'].new { template }
             variables = build_variables(template, payload)

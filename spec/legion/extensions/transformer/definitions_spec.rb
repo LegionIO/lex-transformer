@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Legion::Extensions::Transformer::Definitions do
-  it 'loads JSON-backed definitions through the extension settings helper' do
+  it 'loads JSON-backed definitions from live extension settings' do
     config = Legion::JSON.load('{"extensions":{"transformer":{"definitions":{"notice":{"transformation":"{}","engine":"static"}}}}}')
     Legion::Settings.with_overlay(config) do
       expect(described_class.fetch(name: 'notice')).to include(transformation: '{}', engine: 'static')
