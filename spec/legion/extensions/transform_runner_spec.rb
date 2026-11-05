@@ -160,14 +160,6 @@ RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
     expect(received).to be_empty
   end
 
-  it 'checks envelope deadlines without requiring a deadline SQL column' do
-    task = task_create
-    expect { runner.transform(transformation: '{}', task_id: task[:id], deadline_at: (Time.now - 60).iso8601, **target) }
-      .to raise_error(ArgumentError, 'task deadline has expired')
-    expect(Legion::Data::Model::Task[task[:id]][:status]).to eq('transformer.queued')
-    expect(received).to be_empty
-  end
-
   it 'raises rejected publication without pretending persisted rows guarantee delivery' do
     task = task_create
     @channel.close

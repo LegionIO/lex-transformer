@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'securerandom'
-require 'time'
 require 'legion/data'
 require 'legion/transport'
 require 'legion/transport/messages/dynamic'
@@ -73,8 +72,6 @@ module Legion
           end
 
           def transformer_check_dispatch!(envelope:)
-            raise ArgumentError, 'task deadline has expired' if envelope[:deadline_at] && Time.parse(envelope[:deadline_at].to_s) <= Time.now
-
             target_id = Legion::Data.connected? && envelope[:function_id]
             explicit_target = envelope[:function].is_a?(String) && !envelope[:function].empty? &&
                               envelope[:runner_routing_key].is_a?(String) && !envelope[:runner_routing_key].empty?

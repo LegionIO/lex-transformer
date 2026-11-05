@@ -10,7 +10,7 @@
 - Normalize JSON-backed schema fields and supported type names; reject invalid JSON, scalar output, mixed fanout, and oversized fanout before publication.
 - Preserve canonical policy, lineage, schema, engine, schedule, and correlation metadata across transformation handoffs.
 - Replace execution transitions and outbox intents with ordinary Task model create/update operations, explicitly serialized JSON, and direct confirmed publication.
-- Give fanout children distinct task/message identities and their own arguments; preserve cancellation, failure states, target routing, and lineage without execution-schema dependencies.
+- Give fanout children distinct task/message identities and their own arguments; preserve cancellation, failure states, target routing, and lineage without execution-schema dependencies. Remove unmerged execution deadline enforcement.
 - Report direct handoffs as nondurable even when task rows are persisted; publication failures raise and partial fanout is not transactionally replay-safe.
 - Make ERB trusted-only and disabled by default, with configurable engine allowlist and explicit administrator opt-in.
 - Move LLM retry/default policy and dynamic execution depth/fanout limits to extension settings and log all transformation failures.
