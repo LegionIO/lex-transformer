@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'legion/settings'
-require 'legion/transport/task_protocol'
+require 'legion/transport/task/protocol'
 require 'legion/logging'
 
 module Legion
@@ -24,7 +24,7 @@ module Legion
 
       module Helpers
         module Configuration
-          include Legion::Transport::TaskProtocol::Helper
+          include Legion::Transport::Task::Protocol::Helper
           include Legion::Logging::Helper
 
           private

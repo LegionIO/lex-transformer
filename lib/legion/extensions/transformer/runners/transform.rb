@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
+require 'securerandom'
 require 'time'
 require 'legion/data'
-require 'legion/data/task_execution'
 require 'legion/transport'
 require 'legion/transport/messages/dynamic'
 require 'legion/transport/messages/task'
@@ -41,58 +41,35 @@ module Legion
             row = Legion::Data::Model::Task[envelope.fetch(:task_id)]
             raise ArgumentError, "task #{envelope[:task_id]} does not exist" unless row
 
-            values = row.values
-            stopped = transformer_stopped(task: values)
+            stopped = transformer_stopped(task: row)
             return stopped if stopped
-
-            recorded = values[:transformation_result] && Legion::JSON.load(values[:transformation_result])
-            return recorded.merge(task_id: values[:id], status: values[:status], durable: true, duplicate: true) if recorded
 
             context = envelope[:args].is_a?(Hash) ? envelope[:args].merge(envelope) : envelope
             outcome = Legion::Extensions::Transformer::Client.new.transform(payload: context, **request)
-            Legion::Data.connection.transaction do
-              dataset = Legion::Data::Model::Task.where(id: envelope[:task_id])
-              dataset = dataset.for_update unless Legion::Data.connection.database_type == :sqlite
-              current = dataset.first.values
-              stopped = transformer_stopped(task: current)
-              return stopped if stopped
+            stopped = transformer_stopped(task: row.refresh)
+            return stopped if stopped
 
-              if current[:transformation_result]
-                recorded = Legion::JSON.load(current[:transformation_result])
-                return recorded.merge(task_id: current[:id], status: current[:status], durable: true, duplicate: true)
-              end
-              status = outcome[:success] ? task_status(name: :transformer_succeeded) : outcome.fetch(:status)
-              changed = Legion::Data::TaskExecution.transition_task(
-                task_id: envelope[:task_id], status: status, expected_status: current[:status],
-                values: { transformation_result: outcome }
-              )
-              raise "transform task #{envelope[:task_id]} transition rejected: #{changed[:reason]}" unless changed[:changed]
-              return outcome.merge(task_id: envelope[:task_id], durable: true) unless outcome[:success]
-
-              target = envelope.merge(definition_version: outcome.fetch(:definition_version))
-              transformer_check_dispatch!(envelope: target)
-              transformer_dispatch(envelope: target, result: outcome[:result], persisted: true)
-              outcome.merge(task_id: envelope[:task_id], durable: true)
+            unless outcome[:success]
+              row.update(status: outcome.fetch(:status), results: Legion::JSON.dump(outcome))
+              return outcome.merge(task_id: envelope[:task_id], durable: false)
             end
+
+            target = envelope.merge(definition_version: outcome.fetch(:definition_version))
+            transformer_check_dispatch!(envelope: target)
+            transformer_dispatch(envelope: target, result: outcome[:result], persisted: true)
+            outcome.merge(task_id: envelope[:task_id], durable: false)
           end
 
           def transformer_stopped(task:)
             status = task[:status]
-            unless task_terminal_status?(status: status)
-              if task[:cancelled_at]
-                status = task_status(name: :cancelled)
-              elsif task[:deadline_at] && Time.parse(task[:deadline_at].to_s) <= Time.now
-                status = task_status(name: :expired)
-              end
-              if status != task[:status]
-                transition = Legion::Data::TaskExecution.transition_task(task_id: task[:id], status: status, expected_status: task[:status])
-                status = transition.fetch(:task).fetch(:status)
-              end
+            if task[:cancelled_at] && !task_terminal_status?(status: status)
+              status = task_status(name: :cancelled)
+              task.update(status: status)
             end
             return unless task_terminal_status?(status: status) || status == task_status(name: :running)
 
             { success: [task_status(name: :completed), task_status(name: :multiplied)].include?(status),
-              status: status, task_id: task[:id], duplicate: true, durable: true }
+              status: status, task_id: task[:id], duplicate: true, durable: false }
           end
 
           def transformer_check_dispatch!(envelope:)
@@ -108,19 +85,17 @@ module Legion
           end
 
           def transformer_dispatch(envelope:, result:, persisted:)
-            fields = Legion::Transport::TaskProtocol::METADATA_FIELDS
-            metadata = envelope.slice(*fields).except(:attempt_id, :execution_token)
+            metadata = envelope.slice(*Legion::Transport::Task::Protocol::METADATA_FIELDS)
             if result.is_a?(Array)
               transformer_fanout(metadata: metadata, result: result, persisted: persisted)
-            elsif persisted
-              Legion::Data::TaskExecution.enqueue_dispatch(
-                task_id: metadata[:task_id],
-                **transformer_intent(options: metadata.merge(args: result), event_key: "transform:#{metadata[:task_id]}:#{metadata[:definition_version]}")
-              )
-              Legion::Data::TaskExecution.transition_task(task_id: metadata[:task_id], status: task_status(name: :queued),
-                                                          expected_status: task_status(name: :transformer_succeeded), values: { function_args: result })
             else
-              transformer_publish(options: metadata.merge(args: result))
+              options = metadata.merge(args: result)
+              if persisted
+                Legion::Data::Model::Task[metadata.fetch(:task_id)].update(
+                  status: task_status(name: :queued), function_args: Legion::JSON.dump(result), payload: Legion::JSON.dump(options)
+                )
+              end
+              transformer_publish(options: options)
             end
           end
 
@@ -133,32 +108,23 @@ module Legion
             max_fanout = execution.fetch(:max_fanout)
             raise ArgumentError, "transform output exceeds max_fanout #{max_fanout}" if result.length > max_fanout
 
-            result.each_with_index do |args, index|
+            result.each do |args|
               child = metadata.except(:task_id, :message_id).merge(parent_id: metadata[:task_id], master_id: metadata[:master_id] || metadata[:task_id],
-                                                                   depth: depth, args: args)
+                                                                   depth: depth, args: args, message_id: SecureRandom.uuid)
               if persisted
-                key = "transform:#{metadata[:task_id]}:#{metadata[:definition_version]}:#{index}"
-                child[:message_id] = key
-                Legion::Data::TaskExecution.create_task(
-                  values:          child.slice(*Legion::Data::Model::Task.columns).merge(status: task_status(name: :queued), function_args: args,
-                                                                                         payload: child),
-                  idempotency_key: key,
-                  dispatch:        transformer_intent(options: child, event_key: key)
+                row = Legion::Data::Model::Task.create(
+                  child.slice(*Legion::Data::Model::Task.columns).merge(
+                    status: task_status(name: :queued), function_args: Legion::JSON.dump(args), payload: Legion::JSON.dump(child)
+                  )
                 )
-              else
-                transformer_publish(options: child)
+                child[:task_id] = row.pk
               end
+              transformer_publish(options: child)
             end
             return unless persisted
 
-            Legion::Data::TaskExecution.transition_task(task_id: metadata[:task_id], status: task_status(name: :multiplied),
-                                                        expected_status: task_status(name: :transformer_succeeded))
-          end
-
-          def transformer_intent(options:, event_key:)
-            type = options[:function_id] ? :dynamic : :task
-            options = options.merge(routing_key: options.fetch(:runner_routing_key)) if type == :task
-            { event_key: event_key, message_type: Legion::Transport::TaskProtocol::MESSAGE_TYPES.fetch(type), options: options }
+            Legion::Data::Model::Task[metadata.fetch(:task_id)].update(status:  task_status(name: :multiplied),
+                                                                       results: Legion::JSON.dump(result))
           end
 
           def transformer_publish(options:)

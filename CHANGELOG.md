@@ -9,13 +9,15 @@
 - Load named definitions through `extensions.transformer` settings and use the real Conditioner `valid` contract; missing or malformed conditions never fail open.
 - Normalize JSON-backed schema fields and supported type names; reject invalid JSON, scalar output, mixed fanout, and oversized fanout before publication.
 - Preserve canonical policy, lineage, schema, engine, schedule, and correlation metadata across transformation handoffs.
-- Record transformation output/revision and transactional outbox intents through Legion Data; deterministic child identities prevent replay fanout duplication.
-- Use confirmed `publish!` for ephemeral dispatch and expose its nondurable boundary instead of silently accepting rejected publication.
+- Replace execution transitions and outbox intents with ordinary Task model create/update operations, explicitly serialized JSON, and direct confirmed publication.
+- Give fanout children distinct task/message identities and their own arguments; preserve cancellation, failure states, target routing, and lineage without execution-schema dependencies.
+- Report direct handoffs as nondurable even when task rows are persisted; publication failures raise and partial fanout is not transactionally replay-safe.
 - Make ERB trusted-only and disabled by default, with configurable engine allowlist and explicit administrator opt-in.
 - Move LLM retry/default policy and dynamic execution depth/fanout limits to extension settings and log all transformation failures.
 - Register SDK defaults at startup and read live canonical extension policy without loader caches, bootstrap-on-read or custom settings accessors; preserve denied engines and validated execution limits.
-- Use Transport-owned immutable protocol/status identities and publication policy; local settings cannot reinterpret persisted transformation outcomes or fanout on replay.
-- Require Settings 1.4.3, Data 1.11.0 (migrations through 144), Transport 1.4.32, and Conditioner 0.4.0.
+- Use `Legion::Transport::Task::Protocol` immutable protocol/status identities; remove the obsolete `TaskProtocol` namespace.
+- Require Settings 1.4.5, Data 1.11.0, Transport 1.4.32, and Conditioner 0.4.0; pin coordinated CI foundations to Data `2fa2c05` and Transport `5bf133f`.
+- Resolve local companion dependencies from existing extension and workspace checkouts.
 
 ### Testing
 - Replace fake Conditioner/settings results and no-op runner stubs with real client, SQLite persistence, and local transport boundary regressions.

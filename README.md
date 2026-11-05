@@ -8,7 +8,7 @@ Payload transformation for [LegionIO](https://github.com/LegionIO/LegionIO). The
 gem 'lex-transformer', '~> 0.4'
 ```
 
-Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.5`, `legion-data >= 1.11.0` (migrations through 144), `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the foundation releases before this extension. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission; durable handoffs additionally require connected, migrated Legion Data and the Tasker outbox relay.
+Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.5`, `legion-data >= 1.11.0`, `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the coordinated foundation releases before this extension. CI pins Data `2fa2c05` and Transport `5bf133f`. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission.
 
 ## Standalone client
 
@@ -89,7 +89,7 @@ Definitions may contain `transformation`, `engine`, `engine_options`, `schema`, 
 | `execution.max_fanout` | `1000` | Local admission limit on output and child count |
 | `execution.max_depth` | `100` | Local admission limit on task/child depth |
 
-Depth and fanout limits are dynamic local policy under `extensions.transformer.execution`. Task statuses, message types, metadata fields and routes are immutable wire identities owned by `Legion::Transport::TaskProtocol`; the transform route is always `task.subtask.transform`. Strict publication policy belongs to `transport.task_publication`. Settings are process-local, not distributed state: changing local policy cannot rename persisted statuses or reinterpret a recorded transformation on replay.
+Depth and fanout limits are dynamic local policy under `extensions.transformer.execution`. Task statuses, message types, metadata fields and routes are immutable wire identities owned by `Legion::Transport::Task::Protocol`; the transform route is always `task.subtask.transform`. Strict publication policy belongs to `transport.task_publication`. Settings are process-local, not distributed state: changing local policy cannot rename persisted statuses.
 
 Engine grants must be Boolean values, not strings or additive arrays. Set unwanted engine keys to `false`; omission retains their inherited setting. Use symbol keys in Ruby overlays (Legion JSON configuration is already symbolized). Duplicate string/symbol spellings are rejected rather than allowing an inherited grant to shadow a denial. Restrictive request overlays therefore work without changing Legion Settings' established additive-array semantics.
 
@@ -115,22 +115,22 @@ This is a field/type validator, **not a complete JSON Schema implementation**. S
 
 Supported type names are `string`, `integer`, `number`, `float`, `boolean`, `object`/`hash`, `array`, and `null`/`nilclass`; Ruby classes such as `String`, `Integer`, `Hash`, and `Numeric` also work. Names are case-insensitive. Unsupported types fail clearly rather than silently disabling checks.
 
-## Runtime handoff and replay
+## Runtime handoff
 
-The actor is an orchestration stage (`use_runner? false`): it does not claim or complete the eventual target runner. It accepts the same transform/chain arguments plus canonical task metadata. Business data belongs in `args`; transformed values cannot overwrite routing, policy identity, or lineage.
+The actor is an orchestration stage (`use_runner? false`): it does not execute or complete the eventual target runner. It accepts the same transform/chain arguments plus canonical task metadata. Business data belongs in `args`; transformed values cannot overwrite routing, policy identity, or lineage.
 
 - A persisted single-output task retains its original `task_id`, parent/master lineage, policy context, schema, engine options, schedule/occurrence, correlation and definition revision.
-- The stage records its validated result and revision in `tasks.transformation_result`, then records the target dispatch transactionally. A replay reuses that record even if the template or local admission policy subsequently changes. Data owns each task's persisted execution-policy snapshot (migration 144), leases and retry timing; Transformer does not override that authority.
-- Fanout creates children with `parent_id` pointing to the logical transform task and preserved master lineage. Atomic `create_task` plus dispatch insertion uses deterministic parent/revision/index identities. Replays do not multiply children. The parent becomes `task.multiplied`, which denotes fanout handoff, **not completion of the child effects**.
-- All durable publication is performed by the Tasker outbox relay. Recording an intent is not a claim of delivery or task completion. Failed publication remains recoverable.
-- Cancelled, expired, terminal, or already-running tasks are not dispatched again. Child depth and fanout bounds are checked before child creation.
-- Without connected Data/task storage, publication uses `publish!` and raises on rejection; the response says `durable: false`. Ephemeral mode does not promise replay deduplication or durable fanout. An explicit `function` and full `runner_routing_key` are required when no database-backed `function_id` can be resolved. The latter is the canonical `<extension>.<runner>.<function>` target route and is forwarded unchanged.
+- The stage updates the ordinary Task model with `task.queued`, JSON-serialized `function_args` and the outgoing `payload`, then publishes directly with `publish!`. Rendering and validation failures update the task status and JSON-serialized `results` without publishing.
+- Fanout creates one ordinary Task model per child with distinct task and message identities, serialized child arguments, `parent_id` pointing to the transform task, and preserved master lineage. Each child is published directly. After all publications succeed, the parent becomes `task.multiplied`, denoting handoff rather than completion of child effects.
+- Cancelled, terminal, or already-running tasks are not dispatched again. Envelope deadlines and child depth/fanout bounds are checked before child creation; no deadline SQL column is required.
+- Publication rejection raises. Task rows and broker publication are not an atomic operation: interrupted fanout may leave some children published, and redelivery may repeat work. There is no transactional outbox, execution lease, recorded-transformation replay, or exactly-once guarantee. Responses report `durable: false` even when Task rows are stored.
+- Without connected Data/task storage, publication still uses `publish!`. An explicit `function` and full `runner_routing_key` are required when no database-backed `function_id` can be resolved. The latter is the canonical `<extension>.<runner>.<function>` target route and is forwarded unchanged.
 
-Attempt IDs and execution tokens are not inherited by new target dispatches: target execution must obtain its own claim. Durable identity prevents duplicated child creation, not exactly-once external effects at an arbitrary service.
+The runtime assumes consumer prefetch 1. Persistence uses real Task model `create`/`update` operations; there is no separate task-execution persistence API.
 
 ## Development
 
-Guarded companion Gemfile paths use `.ci-dependencies/<repo>` when that directory exists, otherwise sibling worktrees. They do not change installed-gem behavior or use Git URLs. Release gates:
+Guarded companion Gemfile paths prefer `.ci-dependencies/<repo>`, then existing sibling extension or workspace gem checkouts. They do not change installed-gem behavior or use Git URLs. Release gates:
 
 ```bash
 bundle exec rubocop -A

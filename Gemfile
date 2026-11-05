@@ -4,11 +4,11 @@ source 'https://rubygems.org'
 
 gemspec
 
-companion_root = File.expand_path('.ci-dependencies', __dir__)
-companion_root = File.expand_path('..', __dir__) unless Dir.exist?(companion_root)
 %w[legion-settings legion-data legion-transport lex-conditioner].each do |name|
-  path = File.join(companion_root, name)
-  gem name, path: path if File.file?(File.join(path, "#{name}.gemspec"))
+  paths = [File.expand_path(".ci-dependencies/#{name}", __dir__),
+           File.expand_path("../#{name}", __dir__), File.expand_path("../../#{name}", __dir__)]
+  path = paths.find { |candidate| File.file?(File.join(candidate, "#{name}.gemspec")) }
+  gem name, path: path if path
 end
 
 group :test do

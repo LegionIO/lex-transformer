@@ -38,6 +38,16 @@ RSpec.describe 'Transformer stage publication' do
     expect(received.map { |message| message[:args] }).to eq([{ final: 2 }])
   end
 
+  it 'gives ephemeral fanout distinct message identities without inheriting the parent task identity' do
+    outcome = runner.transform(transformation: '[{"value":1},{"value":2}]', task_id: 12, message_id: 'parent-message', **target)
+    expect(outcome).to include(success: true, durable: false)
+    expect(received.map { |message| message[:args] }).to eq([{ value: 1 }, { value: 2 }])
+    expect(received.map { |message| message[:message_id] }.uniq.size).to eq(2)
+    expect(received.map { |message| message[:message_id] }).not_to include('parent-message')
+    expect(received).to all(include(parent_id: 12, master_id: 12, depth: 1))
+    expect(received).to all(satisfy { |message| !message.key?(:task_id) })
+  end
+
   it 'does not publish malformed JSON or scalar output' do
     expect(runner.transform(transformation: '{broken', **target)).to include(success: false)
     expect(runner.transform(transformation: '42', **target)).to include(success: false)
