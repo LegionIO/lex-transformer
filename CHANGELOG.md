@@ -2,6 +2,36 @@
 
 ## [0.4.0] - 2026-10-30
 
+### Breaking changes
+
+#### Engine and registry APIs now require keyword arguments
+
+This is a kwargs-only cutover with no positional compatibility shims. Direct engine callers and custom engine implementations must migrate; changing only the built-in engines is not sufficient for external integrations.
+
+| API | Before 0.4.0 | 0.4.0 |
+| --- | --- | --- |
+| Render an engine | `engine.render(template, payload, **options)` | `engine.render(template: template, payload: payload, **options)` |
+| Register an engine | `Registry.register(CustomEngine)` | `Registry.register(engine_class: CustomEngine)` |
+| Fetch an engine | `Registry.fetch(:erb)` | `Registry.fetch(name: :erb)` |
+| Detect an engine | `Registry.detect(template)` | `Registry.detect(template: template)` |
+| Fetch a definition | `Definitions.fetch(name)` | `Definitions.fetch(name: name)` |
+
+Custom engines must change `def render(template, payload, **opts)` to `def render(template:, payload:, **opts)`. Use `**` instead of `**opts` only when additional keywords are intentionally ignored. Existing positional calls or positional-only overrides can raise `ArgumentError` on the supported Ruby versions.
+
+`Registry.reset!` and `Definitions.merge_options` are removed. Configure engine permissions through `extensions.transformer.allowed_engines`; pass per-call overrides as `engine_options:` to `Client#transform`, which merges them with named-definition options.
+
+#### Configuration and execution behavior
+
+- Named definitions move from `lex-transformer.definitions` to `extensions.transformer.definitions`. The old namespace is no longer read.
+- Custom engines must be both registered and explicitly enabled by name in the Boolean `extensions.transformer.allowed_engines` map. Registration alone no longer grants permission to execute.
+- ERB no longer executes by default, including when auto-detected from template markers. Administrator-owned templates require `extensions.transformer.allow_trusted_engines: true` and an enabled ERB engine grant. Do not enable this for untrusted templates.
+- Rendered output must be a Hash or an Array of Hashes. String output must parse as JSON into one of those shapes; invalid JSON, scalar results, and mixed arrays now fail rather than passing through.
+- A rendered Hash containing `success: false` is business data, not an engine failure signal. Custom engines must raise an exception to report rendering failure.
+- `Client#transform_chain` returns the final rendered output in `result`, not the accumulated input/intermediate context. Templates must explicitly retain fields needed in the final output.
+- The runner's `transform_chain` entry point is replaced by `transform(steps: ..., **payload)`. The standalone client still exposes `transform_chain(steps:, payload:)`. The old runner helper entry points `render_transformation`, `dispatch_transformed`, `dispatch_multiplied`, and `send_task` are removed.
+- Named-definition conditions are enforced through Conditioner. Missing definitions, malformed rules, and condition-evaluation errors no longer silently pass.
+- AMQP handoff uses `publish!`: rejected publication and persistence failures propagate instead of returning a successful handoff. A successful stage result means dispatch, not completion of the destination task.
+
 ### Changed
 - Share one client/actor transformation pipeline with final-output-only chain dispatch and keyword-only engine APIs.
 - Separate engine exceptions from rendered business data, preserving payloads containing `success: false`.
