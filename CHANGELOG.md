@@ -16,8 +16,11 @@
 - Move LLM retry/default policy and dynamic execution depth/fanout limits to extension settings and log all transformation failures.
 - Register SDK defaults at startup and read live canonical extension policy without loader caches, bootstrap-on-read or custom settings accessors; preserve denied engines and validated execution limits.
 - Use `Legion::Transport::Task::Protocol` immutable protocol/status identities; remove the obsolete `TaskProtocol` namespace.
-- Require Settings 1.4.5, Data 1.11.0, Transport 1.4.32, and Conditioner 0.4.0; pin coordinated CI foundations to Data `2fa2c05` and Transport `5bf133f`.
+- Require Settings 1.4.5, Data 1.11.0, Transport 1.4.32, and Conditioner 0.4.0; use released Transport in CI and pin the current Data and Conditioner companion PR revisions.
 - Resolve local companion dependencies from existing extension and workspace checkouts.
+
+### Fixed
+- Leave legacy `running` tasks untouched without redispatching them, and treat legacy completed task states as successful duplicate deliveries.
 
 ### Testing
 - Replace fake Conditioner/settings results and no-op runner stubs with real client, SQLite persistence, and local transport boundary regressions.

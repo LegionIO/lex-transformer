@@ -65,9 +65,10 @@ module Legion
               status = task_status(name: :cancelled)
               task.update(status: status)
             end
-            return unless task_terminal_status?(status: status) || status == task_status(name: :running)
+            return unless task_terminal_status?(status: status) || status == task_status(name: :running) || status == 'running'
 
-            { success: [task_status(name: :completed), task_status(name: :multiplied)].include?(status),
+            successful_statuses = [task_status(name: :completed), task_status(name: :multiplied), 'completed', 'complete', 'multiplied']
+            { success: successful_statuses.include?(status),
               status: status, task_id: task[:id], duplicate: true, durable: false }
           end
 

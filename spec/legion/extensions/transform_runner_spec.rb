@@ -125,9 +125,19 @@ RSpec.describe Legion::Extensions::Transformer::Runners::Transform do
   end
 
   it 'does not interfere with running or terminal target tasks' do
-    %w[task.running task.failed task.completed task.cancelled].each do |status|
+    %w[task.running running task.failed task.completed task.cancelled].each do |status|
       task = task_create(status: status)
       expect(runner.transform(transformation: '{}', task_id: task[:id], **target)).to include(duplicate: true, status: status)
+      expect(Legion::Data::Model::Task[task[:id]][:status]).to eq(status)
+    end
+    expect(received).to be_empty
+  end
+
+  it 'accepts legacy completed deliveries without dispatching or changing the target' do
+    %w[completed complete multiplied].each do |status|
+      task = task_create(status: status)
+      expect(runner.transform(transformation: '{}', task_id: task[:id], **target))
+        .to include(success: true, duplicate: true, status: status)
       expect(Legion::Data::Model::Task[task[:id]][:status]).to eq(status)
     end
     expect(received).to be_empty
