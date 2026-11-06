@@ -8,7 +8,7 @@ Payload transformation for [LegionIO](https://github.com/LegionIO/LegionIO). The
 gem 'lex-transformer', '~> 0.4'
 ```
 
-Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.5`, `legion-data >= 1.11.0`, `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the coordinated foundation releases before this extension. CI pins Data `2fa2c05` and Transport `5bf133f`. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission.
+Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.5`, `legion-data >= 1.11.0`, `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the coordinated foundation releases before this extension. CI pins the current Data and Conditioner companion PR revisions and uses released Transport. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission.
 
 ## Standalone client
 
