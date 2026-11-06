@@ -2,7 +2,7 @@
 
 require 'tilt'
 require_relative 'base'
-require_relative '../settings'
+require 'legion/settings'
 
 module Legion
   module Extensions

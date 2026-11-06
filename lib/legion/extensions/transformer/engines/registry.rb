@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative '../settings'
+require_relative '../../transformer'
 require_relative 'erb'
 require_relative 'static'
 require_relative 'liquid'

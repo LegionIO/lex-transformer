@@ -2,7 +2,8 @@
 
 require 'timeout'
 require 'legion/json'
-require_relative '../settings'
+require 'legion/settings'
+require 'legion/logging'
 require_relative 'base'
 
 module Legion

@@ -21,6 +21,7 @@
 
 ### Fixed
 - Leave legacy `running` tasks untouched without redispatching them, and treat legacy completed task states as successful duplicate deliveries.
+- Keep `default_settings` in the root extension module in `transformer.rb`; remove the separate settings file and custom configuration helper, and restore the fixed `task.transform` queue name.
 
 ### Testing
 - Replace fake Conditioner/settings results and no-op runner stubs with real client, SQLite persistence, and local transport boundary regressions.

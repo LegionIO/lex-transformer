@@ -14,7 +14,8 @@ module Legion
         module Transform
           extend self
 
-          include Legion::Extensions::Transformer::Helpers::Configuration
+          include Legion::Transport::Task::Protocol::Helper
+          include Legion::Logging::Helper
 
           def transform(transformation: nil, engine: nil, schema: nil, engine_options: {}, name: nil, steps: nil, **payload)
             request = { transformation: transformation, engine: engine, schema: schema, engine_options: engine_options, name: name, steps: steps }
@@ -78,7 +79,9 @@ module Legion
                               envelope[:runner_routing_key].is_a?(String) && !envelope[:runner_routing_key].empty?
             raise ArgumentError, 'target function_id or explicit function and runner_routing_key is required' unless target_id || explicit_target
 
-            max_depth = transformer_execution_settings(execution: settings[:execution]).fetch(:max_depth)
+            max_depth = settings[:execution].fetch(:max_depth)
+            raise ArgumentError, 'transformer execution.max_depth must be a positive Integer' unless max_depth.is_a?(Integer) && max_depth.positive?
+
             raise ArgumentError, "task depth exceeds #{max_depth}" if envelope.fetch(:depth, 0).to_i > max_depth
           end
 
@@ -99,11 +102,15 @@ module Legion
 
           def transformer_fanout(metadata:, result:, persisted:)
             depth = metadata.fetch(:depth, 0).to_i + 1
-            execution = transformer_execution_settings(execution: settings[:execution])
+            execution = settings[:execution]
             max_depth = execution.fetch(:max_depth)
+            raise ArgumentError, 'transformer execution.max_depth must be a positive Integer' unless max_depth.is_a?(Integer) && max_depth.positive?
+
             raise ArgumentError, "fanout depth exceeds #{max_depth}" if depth > max_depth
 
             max_fanout = execution.fetch(:max_fanout)
+            raise ArgumentError, 'transformer execution.max_fanout must be a positive Integer' unless max_fanout.is_a?(Integer) && max_fanout.positive?
+
             raise ArgumentError, "transform output exceeds max_fanout #{max_fanout}" if result.length > max_fanout
 
             result.each do |args|

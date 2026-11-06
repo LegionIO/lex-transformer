@@ -2,7 +2,9 @@
 
 require 'digest'
 require 'legion/json'
-require_relative 'settings'
+require 'legion/logging'
+require 'legion/transport/task/protocol'
+require_relative '../transformer'
 require_relative 'engines/registry'
 require_relative 'helpers/schema_validator'
 require_relative 'definitions'
@@ -11,7 +13,8 @@ module Legion
   module Extensions
     module Transformer
       class Client
-        include Legion::Extensions::Transformer::Helpers::Configuration
+        include Legion::Transport::Task::Protocol::Helper
+        include Legion::Logging::Helper
 
         def transform(payload:, transformation: nil, engine: nil, schema: nil, engine_options: {}, name: nil, steps: nil)
           return transform_by_name(name:, payload:, engine:, schema:, engine_options:) if transformation.nil? && name
@@ -98,7 +101,9 @@ module Legion
           raise ArgumentError, 'transform output must be a Hash or an Array of Hashes' unless result.is_a?(Hash) || (result.is_a?(Array) && result.all?(Hash))
           return unless result.is_a?(Array)
 
-          limit = transformer_execution_settings(execution: Legion::Settings[:extensions][:transformer][:execution]).fetch(:max_fanout)
+          limit = Legion::Settings[:extensions][:transformer][:execution].fetch(:max_fanout)
+          raise ArgumentError, 'transformer execution.max_fanout must be a positive Integer' unless limit.is_a?(Integer) && limit.positive?
+
           raise ArgumentError, "transform output exceeds max_fanout #{limit}" if result.length > limit
         end
       end

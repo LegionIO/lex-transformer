@@ -45,7 +45,7 @@ Each step sees previous Hash output merged into the accumulated context and the 
 
 ## Settings and named definitions
 
-Configuration lives at `extensions.transformer`. Framework runners and actors use their automatically injected `settings` helper; the standalone client, engines, definitions and transport objects read `Legion::Settings[:extensions][:transformer]` directly. Defaults register at startup, not during reads. User configuration and request overlays remain live without a loader cache or custom namespace override:
+Configuration lives at `extensions.transformer`. `default_settings` is defined directly on `Legion::Extensions::Transformer` in `transformer.rb`. Framework runners and actors use their automatically injected `settings` helper; standalone components read `Legion::Settings[:extensions][:transformer]` directly. Defaults register at startup, not during reads. There is no extension-specific settings helper. User configuration and request overlays remain live:
 
 ```json
 {
@@ -82,14 +82,13 @@ Definitions may contain `transformation`, `engine`, `engine_options`, `schema`, 
 | `template_markers` | `<%`, `%>` | Marker strings |
 | `trusted_engines` | `erb` | Engines requiring explicit trusted-code opt-in |
 | `allow_trusted_engines` | `false` | Administrator-controlled trusted-code opt-in |
-| `queue` | `task.transform` | Subscription queue |
 | `llm.max_retries` | `1` | Retries after transient errors/invalid JSON |
 | `llm.retry_delay_seconds` | `1` | Delay between LLM retries |
 | `llm.caller` | `{extension: 'lex-transformer', mode: 'transform'}` | Default LLM attribution |
 | `execution.max_fanout` | `1000` | Local admission limit on output and child count |
 | `execution.max_depth` | `100` | Local admission limit on task/child depth |
 
-Depth and fanout limits are dynamic local policy under `extensions.transformer.execution`. Task statuses, message types, metadata fields and routes are immutable wire identities owned by `Legion::Transport::Task::Protocol`; the transform route is always `task.subtask.transform`. Strict publication policy belongs to `transport.task_publication`. Settings are process-local, not distributed state: changing local policy cannot rename persisted statuses.
+Depth and fanout limits are dynamic local policy under `extensions.transformer.execution`. The subscription queue is fixed at `task.transform`, not a setting. Task statuses, message types, metadata fields and routes are immutable wire identities owned by `Legion::Transport::Task::Protocol`; the transform route is always `task.subtask.transform`. Strict publication policy belongs to `transport.task_publication`. Settings are process-local, not distributed state: changing local policy cannot rename persisted statuses.
 
 Engine grants must be Boolean values, not strings or additive arrays. Set unwanted engine keys to `false`; omission retains their inherited setting. Use symbol keys in Ruby overlays (Legion JSON configuration is already symbolized). Duplicate string/symbol spellings are rejected rather than allowing an inherited grant to shadow a denial. Restrictive request overlays therefore work without changing Legion Settings' established additive-array semantics.
 

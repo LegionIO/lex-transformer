@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 require 'legion/extensions/transport'
-require_relative 'settings'
+require 'legion/transport/task/protocol'
+require_relative '../transformer'
 
 module Legion
   module Extensions
