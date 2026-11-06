@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.4.0] - 2026-10-30
+
+### Breaking changes
+
+#### Engine and registry APIs now require keyword arguments
+
+This is a kwargs-only cutover with no positional compatibility shims. Direct engine callers and custom engine implementations must migrate; changing only the built-in engines is not sufficient for external integrations.
+
+| API | Before 0.4.0 | 0.4.0 |
+| --- | --- | --- |
+| Render an engine | `engine.render(template, payload, **options)` | `engine.render(template: template, payload: payload, **options)` |
+| Register an engine | `Registry.register(CustomEngine)` | `Registry.register(engine_class: CustomEngine)` |
+| Fetch an engine | `Registry.fetch(:erb)` | `Registry.fetch(name: :erb)` |
+| Detect an engine | `Registry.detect(template)` | `Registry.detect(template: template)` |
+| Fetch a definition | `Definitions.fetch(name)` | `Definitions.fetch(name: name)` |
+
+Custom engines must change `def render(template, payload, **opts)` to `def render(template:, payload:, **opts)`. Use `**` instead of `**opts` only when additional keywords are intentionally ignored. Existing positional calls or positional-only overrides can raise `ArgumentError` on the supported Ruby versions.
+
+`Registry.reset!` and `Definitions.merge_options` are removed. Configure engine permissions through `extensions.transformer.allowed_engines`; pass per-call overrides as `engine_options:` to `Client#transform`, which merges them with named-definition options.
+
+#### Configuration and execution behavior
+
+- Named definitions move from `lex-transformer.definitions` to `extensions.transformer.definitions`. The old namespace is no longer read.
+- Custom engines must be both registered and explicitly enabled by name in the Boolean `extensions.transformer.allowed_engines` map. Registration alone no longer grants permission to execute.
+- ERB no longer executes by default, including when auto-detected from template markers. Administrator-owned templates require `extensions.transformer.allow_trusted_engines: true` and an enabled ERB engine grant. Do not enable this for untrusted templates.
+- Rendered output must be a Hash or an Array of Hashes. String output must parse as JSON into one of those shapes; invalid JSON, scalar results, and mixed arrays now fail rather than passing through.
+- A rendered Hash containing `success: false` is business data, not an engine failure signal. Custom engines must raise an exception to report rendering failure.
+- `Client#transform_chain` returns the final rendered output in `result`, not the accumulated input/intermediate context. Templates must explicitly retain fields needed in the final output.
+- The runner's `transform_chain` entry point is replaced by `transform(steps: ..., **payload)`. The standalone client still exposes `transform_chain(steps:, payload:)`. The old runner helper entry points `render_transformation`, `dispatch_transformed`, `dispatch_multiplied`, and `send_task` are removed.
+- Named-definition conditions are enforced through Conditioner. Missing definitions, malformed rules, and condition-evaluation errors no longer silently pass.
+- AMQP handoff uses `publish!`: rejected publication and persistence failures propagate instead of returning a successful handoff. A successful stage result means dispatch, not completion of the destination task.
+
+### Changed
+- Share one client/actor transformation pipeline with final-output-only chain dispatch and keyword-only engine APIs.
+- Separate engine exceptions from rendered business data, preserving payloads containing `success: false`.
+- Preserve arbitrary transport headers and business keys in the ERB `payload` Hash while exposing only valid, non-keyword Ruby locals.
+- Load named definitions through `extensions.transformer` settings and use the real Conditioner `valid` contract; missing or malformed conditions never fail open.
+- Normalize JSON-backed schema fields and supported type names; reject invalid JSON, scalar output, mixed fanout, and oversized fanout before publication.
+- Preserve canonical policy, lineage, schema, engine, schedule, and correlation metadata across transformation handoffs.
+- Replace execution transitions and outbox intents with ordinary Task model create/update operations, explicitly serialized JSON, and direct confirmed publication.
+- Give fanout children distinct task/message identities and their own arguments; preserve cancellation, failure states, target routing, and lineage without execution-schema dependencies. Remove unmerged execution deadline enforcement.
+- Report direct handoffs as nondurable even when task rows are persisted; publication failures raise and partial fanout is not transactionally replay-safe.
+- Make ERB trusted-only and disabled by default, with configurable engine allowlist and explicit administrator opt-in.
+- Move LLM retry/default policy and dynamic execution depth/fanout limits to extension settings and log all transformation failures.
+- Register SDK defaults at startup and read live canonical extension policy without loader caches, bootstrap-on-read or custom settings accessors; preserve denied engines and validated execution limits.
+- Use `Legion::Transport::Task::Protocol` immutable protocol/status identities; remove the obsolete `TaskProtocol` namespace.
+- Require Settings 1.4.5, Data 1.11.0, Transport 1.4.32, and Conditioner 0.4.0; use released Transport in CI and pin the current Data and Conditioner companion PR revisions.
+- Resolve local companion dependencies from existing extension and workspace checkouts.
+
+### Fixed
+- Leave legacy `running` tasks untouched without redispatching them, and treat legacy completed task states as successful duplicate deliveries.
+- Keep `default_settings` in the root extension module in `transformer.rb`; remove the separate settings file and custom configuration helper, and restore the fixed `task.transform` queue name.
+
+### Testing
+- Replace fake Conditioner/settings results and no-op runner stubs with real client, SQLite persistence, and local transport boundary regressions.
+
 ## [0.3.8] - 2026-04-23
 
 ### Fixed

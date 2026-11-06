@@ -1,394 +1,133 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
-require 'tilt'
-require 'json'
-
-require 'legion/extensions/transformer/client'
 
 RSpec.describe Legion::Extensions::Transformer::Client do
   subject(:client) { described_class.new }
 
-  describe '#transform' do
-    context 'with static engine (auto-detected)' do
-      it 'renders a static JSON template' do
-        result = client.transform(
-          transformation: '{"greeting":"hello"}',
-          payload:        { name: 'test' }
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq(greeting: 'hello')
-      end
-    end
+  it 'renders trusted templates and returns only final chain output' do
+    result = client.transform_chain(payload: { name: 'world' }, steps: [
+                                      { transformation: '{"greeting":"hello <%= name %>"}' },
+                                      { transformation: '{"message":"<%= greeting %>!"}' }
+                                    ])
+    expect(result).to include(success: true, result: { message: 'hello world!' })
+  end
 
-    context 'with ERB engine (auto-detected)' do
-      it 'renders an ERB template with payload variables' do
-        result = client.transform(
-          transformation: '{"greeting":"hello <%= name %>"}',
-          payload:        { name: 'world' }
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq(greeting: 'hello world')
-      end
-    end
+  it 'preserves business success fields without interpreting them as engine control results' do
+    result = client.transform(transformation: '{"success":false,"reason":"business decision"}', payload: {})
+    expect(result).to include(success: true, result: { success: false, reason: 'business decision' })
+  end
 
-    context 'with explicit static engine' do
-      it 'uses the static engine when specified' do
-        result = client.transform(
-          transformation: '{"key":"value"}',
-          payload:        {},
-          engine:         :static
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq(key: 'value')
-      end
-    end
-
-    context 'with explicit ERB engine' do
-      it 'renders ERB when engine is specified' do
-        result = client.transform(
-          transformation: '{"val":"<%= num %>"}',
-          payload:        { num: 42 },
-          engine:         :erb
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq(val: '42')
-      end
-    end
-
-    context 'with liquid engine' do
-      it 'renders a liquid template' do
-        result = client.transform(
-          transformation: '{"greeting":"hello {{ name }}"}',
-          payload:        { name: 'liquid' },
-          engine:         :liquid
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq(greeting: 'hello liquid')
-      end
-    end
-
-    context 'with jsonpath engine' do
-      it 'extracts a nested value by path' do
-        result = client.transform(
-          transformation: 'user.name',
-          payload:        { user: { name: 'Alice' } },
-          engine:         :jsonpath
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq('Alice')
-      end
-
-      it 'extracts a numeric value by path' do
-        result = client.transform(
-          transformation: 'response.code',
-          payload:        { response: { code: 200 } },
-          engine:         :jsonpath
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq(200)
-      end
-    end
-
-    context 'with schema validation' do
-      it 'returns success false when required keys are missing' do
-        result = client.transform(
-          transformation: '{"name":"test"}',
-          payload:        {},
-          schema:         { required_keys: %i[name email] }
-        )
-        expect(result[:success]).to be false
-        expect(result[:status]).to eq('transformer.validation_failed')
-        expect(result[:errors]).to include(a_string_matching(/email/))
-      end
-
-      it 'returns success true when required keys are present' do
-        result = client.transform(
-          transformation: '{"name":"test","email":"t@t.com"}',
-          payload:        {},
-          schema:         { required_keys: %i[name email] }
-        )
-        expect(result[:success]).to be true
-        expect(result[:result]).to eq(name: 'test', email: 't@t.com')
-      end
-
-      it 'returns success true when no schema is provided' do
-        result = client.transform(
-          transformation: '{"key":"val"}',
-          payload:        {}
-        )
-        expect(result[:success]).to be true
-      end
-
-      it 'returns validation errors for type mismatches' do
-        result = client.transform(
-          transformation: '{"count":"not_a_number"}',
-          payload:        {},
-          schema:         { types: { count: Integer } }
-        )
-        expect(result[:success]).to be false
-        expect(result[:errors].first).to match(/count/)
-      end
+  it 'does not permit ERB unless trusted engine execution is enabled' do
+    Legion::Settings.with_overlay(extensions: { transformer: { allow_trusted_engines: false } }) do
+      result = client.transform(transformation: '{"value":"<%= raise "executed" %>"}', payload: {})
+      expect(result).to include(success: false, status: 'transformer.failed')
+      expect(result[:message]).to include('trusted code')
     end
   end
 
-  describe '#transform_chain' do
-    context 'with a single step' do
-      it 'returns success true with the rendered result' do
-        result = client.transform_chain(
-          steps:   [{ transformation: '{"output":"done"}', engine: :static }],
-          payload: {}
-        )
-        expect(result[:success]).to be true
-        expect(result[:result][:args]).to eq(output: 'done')
-      end
-    end
-
-    context 'with multiple steps' do
-      it 'pipes output of one step as payload into the next' do
-        result = client.transform_chain(
-          steps:   [
-            { transformation: '{"greeting":"hello"}', engine: :static },
-            { transformation: '{"message":"<%= greeting %> world"}', engine: :erb }
-          ],
-          payload: {}
-        )
-        expect(result[:success]).to be true
-        expect(result[:result][:args]).to eq(message: 'hello world')
-      end
-    end
-
-    context 'with per-step engine selection' do
-      it 'uses each step\'s specified engine independently' do
-        result = client.transform_chain(
-          steps:   [
-            { transformation: '{"name":"Alice"}', engine: :static },
-            { transformation: '{"greeting":"hi {{ name }}"}', engine: :liquid }
-          ],
-          payload: {}
-        )
-        expect(result[:success]).to be true
-        expect(result[:result][:args]).to eq(greeting: 'hi Alice')
-      end
-    end
-
-    context 'with auto-detected engine' do
-      it 'detects the engine when none is specified' do
-        result = client.transform_chain(
-          steps:   [{ transformation: '{"auto":"detected"}' }],
-          payload: {}
-        )
-        expect(result[:success]).to be true
-        expect(result[:result][:args]).to eq(auto: 'detected')
-      end
-    end
-
-    context 'with schema validation mid-chain' do
-      it 'stops and returns failure when schema fails' do
-        result = client.transform_chain(
-          steps:   [
-            { transformation: '{"name":"test"}', engine: :static, schema: { required_keys: %i[name email] } },
-            { transformation: '{"final":"done"}', engine: :static }
-          ],
-          payload: {}
-        )
-        expect(result[:success]).to be false
-        expect(result[:status]).to eq('transformer.validation_failed')
-        expect(result[:errors]).to include(a_string_matching(/email/))
-      end
-
-      it 'proceeds through all steps when schema passes' do
-        result = client.transform_chain(
-          steps:   [
-            { transformation: '{"name":"Alice"}', engine: :static, schema: { required_keys: [:name] } },
-            { transformation: '{"greeting":"hi","name":"<%= name %>"}', engine: :erb }
-          ],
-          payload: {}
-        )
-        expect(result[:success]).to be true
-        expect(result[:result][:args]).to include(name: 'Alice', greeting: 'hi')
-      end
-    end
-
-    context 'with engine_options in chain steps' do
-      it 'passes per-step engine_options to the engine' do
-        result = client.transform_chain(
-          steps:   [
-            { transformation: '{"name":"Alice"}', engine: :static, engine_options: {} },
-            { transformation: '{"greeting":"hi <%= name %>"}', engine: :erb, engine_options: {} }
-          ],
-          payload: {}
-        )
-        expect(result[:success]).to be true
-      end
-
-      it 'bubbles up failure hashes in chain' do
-        failure = { success: false, error: 'timeout' }
-        static_engine = Legion::Extensions::Transformer::Engines::Registry.fetch(:static)
-        allow(static_engine).to receive(:render).and_return(failure)
-
-        result = client.transform_chain(
-          steps:   [
-            { transformation: '{}', engine: :static }
-          ],
-          payload: {}
-        )
-        expect(result[:success]).to be false
-        expect(result[:error]).to eq('timeout')
-      end
+  it 'honors the configured engine allowlist' do
+    Legion::Settings.with_overlay(extensions: { transformer: { allowed_engines: { jsonpath: false } } }) do
+      result = client.transform(transformation: 'item', engine: :jsonpath, payload: { item: { valid: true } })
+      expect(result).to include(success: false)
+      expect(result[:message]).to include('not allowed')
+      expect(client.transform(transformation: '{"permitted":true}', payload: {})).to include(success: true)
     end
   end
 
-  describe '#transform with named definitions' do
-    before do
-      allow(Legion::Extensions::Transformer::Definitions).to receive(:fetch)
-        .with('extract_greeting')
-        .and_return({
-                      transformation: '{"greeting":"hello <%= name %>"}',
-                      engine:         :erb,
-                      engine_options: {},
-                      schema:         nil,
-                      conditions:     nil
-                    })
-
-      allow(Legion::Extensions::Transformer::Definitions).to receive(:fetch)
-        .with('nonexistent')
-        .and_return(nil)
-
-      allow(Legion::Extensions::Transformer::Definitions).to receive(:merge_options) do |defn, **overrides|
-        (defn[:engine_options] || {}).merge(overrides)
-      end
-    end
-
-    it 'looks up definition by name and executes transform' do
-      result = client.transform(
-        name:    'extract_greeting',
-        payload: { name: 'world' }
-      )
-      expect(result[:success]).to be true
-      expect(result[:result]).to eq(greeting: 'hello world')
-    end
-
-    it 'returns failure when definition not found' do
-      result = client.transform(
-        name:    'nonexistent',
-        payload: {}
-      )
-      expect(result[:success]).to be false
-      expect(result[:error]).to eq('definition_not_found')
-    end
-
-    it 'allows transformation: to take precedence over name:' do
-      result = client.transform(
-        transformation: '{"direct":"call"}',
-        payload:        {},
-        name:           'extract_greeting'
-      )
-      expect(result[:success]).to be true
-      expect(result[:result]).to eq(direct: 'call')
+  it 'rejects non-Boolean engine grants instead of treating truthy strings as permission' do
+    Legion::Settings.with_overlay(extensions: { transformer: { allowed_engines: { static: 'false' } } }) do
+      expect(client.transform(transformation: '{}', payload: {})).to include(success: false, error: 'ArgumentError')
     end
   end
 
-  describe '#transform with named definitions + conditions' do
-    let(:conditioner_client_class) do
-      Class.new do
-        def evaluate(conditions:, values:) # rubocop:disable Lint/UnusedMethodArgument
-          if values[:allowed]
-            { passed: true }
-          else
-            { passed: false }
-          end
-        end
-      end
-    end
-
-    before do
-      stub_const('Legion::Extensions::Conditioner::Client', conditioner_client_class)
-
-      allow(Legion::Extensions::Transformer::Definitions).to receive(:fetch)
-        .with('guarded_transform')
-        .and_return({
-                      transformation: '{"result":"done"}',
-                      engine:         :static,
-                      engine_options: {},
-                      schema:         nil,
-                      conditions:     { 'payload_has_key' => 'allowed' }
-                    })
-
-      allow(Legion::Extensions::Transformer::Definitions).to receive(:merge_options)
-        .and_return({})
-    end
-
-    it 'executes transform when conditions pass' do
-      result = client.transform(
-        name:    'guarded_transform',
-        payload: { allowed: true }
-      )
-      expect(result[:success]).to be true
-      expect(result[:result]).to eq(result: 'done')
-    end
-
-    it 'returns conditions_not_met when conditions fail' do
-      result = client.transform(
-        name:    'guarded_transform',
-        payload: { allowed: false }
-      )
-      expect(result[:success]).to be false
-      expect(result[:reason]).to eq('conditions_not_met')
-    end
-
-    it 'skips conditions when conditioner is unavailable' do
-      hide_const('Legion::Extensions::Conditioner::Client')
-
-      result = client.transform(
-        name:    'guarded_transform',
-        payload: { allowed: false }
-      )
-      # Without conditioner, conditions are skipped, transform executes
-      expect(result[:success]).to be true
+  it 'never lets inherited symbol grants shadow a string-keyed denial' do
+    Legion::Settings.with_overlay(extensions: { transformer: { allowed_engines: { 'jsonpath' => false } } }) do
+      result = client.transform(transformation: 'item', engine: :jsonpath, payload: { item: { policy_bypass: true } })
+      expect(result).to include(success: false, error: 'ArgumentError')
     end
   end
 
-  describe 'engine_options parameter' do
-    context 'with engine_options' do
-      it 'passes engine_options through to the engine render call' do
-        llm_engine = Legion::Extensions::Transformer::Engines::Registry.fetch(:erb)
-        expect(llm_engine).to receive(:render).with(
-          '{"val":"<%= num %>"}',
-          { num: 42 },
-          extra: 'opt'
-        ).and_call_original
+  it 'rejects malformed JSON rather than succeeding with unchanged text' do
+    result = client.transform(transformation: '{broken', payload: {})
+    expect(result).to include(success: false, error: 'Legion::JSON::ParseError')
+  end
 
-        client.transform(
-          transformation: '{"val":"<%= num %>"}',
-          payload:        { num: 42 },
-          engine:         :erb,
-          engine_options: { extra: 'opt' }
-        )
-      end
+  it 'rejects scalar JSONPath results before they can become a no-op success' do
+    result = client.transform(transformation: 'person.name', engine: :jsonpath, payload: { person: { name: 'Alice' } })
+    expect(result).to include(success: false)
+  end
 
-      it 'defaults engine_options to empty hash' do
-        result = client.transform(
-          transformation: '{"key":"val"}',
-          payload:        {}
-        )
-        expect(result[:success]).to be true
-      end
+  it 'rejects mixed fanout output' do
+    result = client.transform(transformation: '[{"value":1},false]', payload: {})
+    expect(result).to include(success: false)
+  end
 
-      it 'bubbles up engine failure hashes without schema validation' do
-        failure = { success: false, error: 'timeout', message: 'max retries exhausted' }
-        static_engine = Legion::Extensions::Transformer::Engines::Registry.fetch(:static)
-        allow(static_engine).to receive(:render).and_return(failure)
+  it 'reads the local fanout bound dynamically without retaining a restrictive overlay' do
+    Legion::Settings.with_overlay(extensions: { transformer: { execution: { max_fanout: 1 } } }) do
+      expect(client.transform(transformation: '[{},{}]', payload: {})).to include(success: false)
+    end
+    expect(client.transform(transformation: '[{},{}]', payload: {})).to include(success: true, result: [{}, {}])
+  end
 
-        result = client.transform(
-          transformation: '{}',
-          payload:        {},
-          engine:         :static,
-          schema:         { required_keys: [:impossible] }
-        )
-        expect(result[:success]).to be false
-        expect(result[:error]).to eq('timeout')
-      end
+  it 'rejects invalid local fanout limits instead of disabling the bound' do
+    Legion::Settings.with_overlay(extensions: { transformer: { execution: { max_fanout: 'unlimited' } } }) do
+      expect(client.transform(transformation: '[{}]', payload: {})).to include(success: false, error: 'ArgumentError')
+    end
+  end
+
+  it 'enforces string-keyed settings schema fields and supported type names' do
+    schema = Legion::JSON.load('{"required_keys":["name"],"types":{"age":"integer"}}')
+    missing = client.transform(transformation: '{"age":2}', schema: schema, payload: {})
+    wrong_type = client.transform(transformation: '{"name":"Alice","age":"2"}', schema: schema, payload: {})
+    valid = client.transform(transformation: '{"name":"Alice","age":2}', schema: schema, payload: {})
+    expect(missing).to include(success: false, status: 'transformer.validation_failed')
+    expect(wrong_type).to include(success: false, status: 'transformer.validation_failed')
+    expect(valid).to include(success: true, result: { name: 'Alice', age: 2 })
+  end
+
+  it 'rejects unknown schema types instead of bypassing them' do
+    result = client.transform(transformation: '{"item":1}', schema: { types: { item: 'Kernel' } }, payload: {})
+    expect(result).to include(success: false)
+    expect(result[:message]).to include('unsupported schema type')
+  end
+
+  it 'validates every object in a fanout schema' do
+    result = client.transform(transformation: '[{"id":1},{"id":"bad"}]', schema: { types: { id: 'Integer' } }, payload: {})
+    expect(result).to include(success: false, status: 'transformer.validation_failed')
+    expect(result[:errors].first).to include('item 1')
+  end
+
+  context 'with helper-backed named definitions and the real Conditioner client' do
+    let(:condition) { { all: [{ fact: 'allowed', operator: 'equal', value: true }] } }
+    let(:definition) { { transformation: '{"accepted":true}', conditions: condition } }
+
+    around do |example|
+      Legion::Settings.with_overlay(extensions: { transformer: { definitions: { gated: definition } } }) { example.run }
+    end
+
+    it 'executes when the real condition returns valid true' do
+      expect(client.transform(name: 'gated', payload: { allowed: true })).to include(success: true, result: { accepted: true })
+    end
+
+    it 'does not render when the condition returns valid false' do
+      definition[:transformation] = '{"value":"<%= raise "executed" %>"}'
+      expect(client.transform(name: 'gated', payload: { allowed: false })).to include(success: false, status: 'task.skipped')
+    end
+
+    it 'never fails open for a malformed condition' do
+      condition[:all].first[:operator] = 'unsupported_operator'
+      result = client.transform(name: 'gated', payload: { allowed: true })
+      expect(result).to include(success: false, error: 'Legion::Extensions::Conditioner::ConfigurationError')
+    end
+
+    it 'fails clearly when the Conditioner dependency cannot load' do
+      allow(client).to receive(:require).with('legion/extensions/conditioner/client').and_raise(LoadError, 'missing conditioner')
+      expect(client.transform(name: 'gated', payload: { allowed: true })).to include(success: false, error: 'LoadError')
+    end
+
+    it 'does not reinterpret a missing definition as a direct transformation' do
+      expect(client.transform(name: 'absent', payload: {})).to include(success: false)
     end
   end
 end

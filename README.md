@@ -1,133 +1,66 @@
 # lex-transformer
 
-Payload transformation engine for [LegionIO](https://github.com/LegionIO/LegionIO). Transforms task payloads between services in a relationship chain using pluggable template engines. Maps data from one task's output into the format expected by the next task's input.
+Payload transformation for [LegionIO](https://github.com/LegionIO/LegionIO). The standalone client renders and validates data; the subscription stage uses the same client and forwards only the final output. Hash output dispatches one target; an Array of Hashes fans out into child tasks. Invalid JSON, scalar output, failed conditions, and invalid schemas never dispatch.
 
 ## Installation
 
-```bash
-gem install lex-transformer
-```
-
-Or add to your Gemfile:
-
 ```ruby
-gem 'lex-transformer'
+gem 'lex-transformer', '~> 0.4'
 ```
 
-## Standalone Client
+Ruby 3.4+ is required. This release uses `legion-settings >= 1.4.5`, `legion-data >= 1.11.0`, `legion-transport >= 1.4.32`, and `lex-conditioner >= 0.4.0`. Deploy the coordinated foundation releases before this extension. CI pins the current Data and Conditioner companion PR revisions and uses released Transport. Standalone rendering does not start or require a database, broker, or LegionIO runtime. Actor mode requires LegionIO >= 1.9.53 for explicit trusted-internal stage admission.
 
-Use the transformer without the full LegionIO framework:
+## Standalone client
 
 ```ruby
 require 'legion/extensions/transformer/client'
 
 client = Legion::Extensions::Transformer::Client.new
-
-# Single transform
 result = client.transform(
-  transformation: '{"greeting":"hello <%= name %>"}',
-  payload: { name: 'world' }
-)
-result[:success] # => true
-result[:result]  # => { greeting: "hello world" }
-
-# With explicit engine
-result = client.transform(
-  transformation: '{"greeting":"hello {{ name }}"}',
+  transformation: '{"greeting":"hello"}',
   payload: { name: 'world' },
-  engine: :liquid
+  schema: { required_keys: ['greeting'], types: { greeting: 'string' } }
 )
-
-# With engine options (passed through to the engine)
-result = client.transform(
-  transformation: 'Summarize this in one sentence',
-  payload: { text: 'Long article...' },
-  engine: :llm,
-  engine_options: { model: 'claude-opus-4-6', temperature: 0.3 }
-)
-
-# With schema validation
-result = client.transform(
-  transformation: '{"name":"test"}',
-  payload: {},
-  schema: { required_keys: [:name, :email] }
-)
-result[:success] # => false
-result[:status]  # => "transformer.validation_failed"
-result[:errors]  # => ["missing required key: email"]
-
-# By named definition (loaded from Legion::Settings)
-result = client.transform(name: 'my_template', payload: { foo: 'bar' })
+result[:success]             # true
+result[:result]              # { greeting: 'hello' }
+result[:definition_version]  # SHA-256 revision of the executed transform
 ```
 
-### Transform Chains
+`transform(payload:, transformation: nil, engine: nil, schema: nil, engine_options: {}, name: nil, steps: nil)` returns a Hash. Failures have `success: false`, a configured status, and an error/message or schema errors. Configuration and engine errors are logged. A definition with failed conditions returns the configured skipped status and the real Conditioner explanation. There is no condition bypass if Conditioner is missing or malformed.
 
-Pipe data through sequential transformation steps:
+### Chains
 
 ```ruby
 result = client.transform_chain(
+  payload: {},
   steps: [
-    { transformation: '{"user":"<%= login %>"}', schema: { required_keys: [:user] } },
-    { transformation: '{"message":"Welcome, <%= user %>!"}' }
-  ],
-  payload: { login: 'alice' }
+    { transformation: '{"user":{"name":"Alice"}}' },
+    { transformation: 'user', engine: :jsonpath }
+  ]
 )
-result[:success]        # => true
-result[:result][:args]  # => { message: "Welcome, alice!" }
+result[:result] # { name: 'Alice' }
 ```
 
-Each step's output merges into the running payload, so subsequent steps can reference keys from earlier steps.
+Each step sees previous Hash output merged into the accumulated context and the immediate output under `args`. Array output is available under `args` without replacing that context. A failed step stops the chain. The result is the **final output**, not the intermediate context. The runner accepts chains through `transform(steps: ...)`, using the same client orchestration; actor dispatch happens once, after the final step. A final Array produces one bounded fanout, not one dispatch per step.
 
-## Engines
+## Settings and named definitions
 
-| Engine | Name | Detection | Description |
-|--------|------|-----------|-------------|
-| ERB | `:erb` | `<%` or `%>` in template | Full ERB template rendering via `tilt` |
-| Static | `:static` | Default (no ERB markers) | Plain JSON passthrough |
-| Liquid | `:liquid` | Explicit only | Liquid template rendering (`{{ var }}`) |
-| JSONPath | `:jsonpath` | Explicit only | Dot-notation value extraction from payload |
-| LLM | `:llm` | Explicit only | Natural language transformation via Legion::LLM |
-
-Auto-detection selects ERB when the template contains ERB markers, otherwise falls back to Static. Use the `engine:` parameter to force a specific engine.
-
-### LLM Engine
-
-The LLM engine uses natural language instructions as the "template":
-
-```ruby
-client.transform(
-  transformation: "Summarize this webhook payload into a Slack notification with the PR title and author",
-  payload: { action: "opened", pull_request: { title: "Fix auth", user: { login: "alice" } } },
-  engine: :llm
-)
-```
-
-Requires `legion-llm` to be started. Provider-agnostic — uses whatever LLM provider is configured (Ollama, Bedrock, Anthropic, OpenAI, Gemini).
-
-## Schema Validation
-
-Validate transformed output against a declared schema:
-
-```ruby
-schema = {
-  required_keys: [:name, :email],                    # keys that must be present
-  types: { name: String, email: String, age: Integer } # optional type checks
-}
-```
-
-When validation fails, the transform returns `{ success: false, status: 'transformer.validation_failed', errors: [...] }`.
-
-## Named Definitions
-
-Transform definitions can be registered in settings under `lex-transformer.definitions.<name>` and referenced by name:
+Configuration lives at `extensions.transformer`. `default_settings` is defined directly on `Legion::Extensions::Transformer` in `transformer.rb`. Framework runners and actors use their automatically injected `settings` helper; standalone components read `Legion::Settings[:extensions][:transformer]` directly. Defaults register at startup, not during reads. There is no extension-specific settings helper. User configuration and request overlays remain live:
 
 ```json
 {
-  "lex-transformer": {
-    "definitions": {
-      "slack_notify": {
-        "transformation": "{\"text\":\"<%= title %> by <%= author %>\"}",
-        "engine": "erb"
+  "extensions": {
+    "transformer": {
+      "allowed_engines": {"static": true, "liquid": true, "jsonpath": true, "erb": false, "llm": false},
+      "default_engine": "static",
+      "allow_trusted_engines": false,
+      "definitions": {
+        "notify": {
+          "transformation": "{\"accepted\":true}",
+          "engine": "static",
+          "conditions": {"all": [{"fact": "allowed", "operator": "equal", "value": true}]},
+          "schema": {"required_keys": ["accepted"], "types": {"accepted": "boolean"}}
+        }
       }
     }
   }
@@ -135,39 +68,75 @@ Transform definitions can be registered in settings under `lex-transformer.defin
 ```
 
 ```ruby
-result = client.transform(name: 'slack_notify', payload: { title: 'PR merged', author: 'alice' })
+client.transform(name: 'notify', payload: { allowed: true })
 ```
 
-If a definition includes `conditions:`, the conditioner client is evaluated first and the transform is skipped on failure.
+Definitions may contain `transformation`, `engine`, `engine_options`, `schema`, `conditions`, or `steps`. Per-call engine options override definition options. An explicit transformation takes precedence over a name. String and symbol configuration keys are accepted at the schema and definition boundaries. The old `lex-transformer.definitions` namespace is no longer read.
 
-## Runners
+| Setting | Default | Purpose |
+|---|---|---|
+| `definitions` | `{}` | Named transformation configuration |
+| `allowed_engines` | `{static: true, erb: true, liquid: true, jsonpath: true, llm: true}` | Boolean grants; explicit `false` disables an inherited engine |
+| `default_engine` | `static` | Non-template auto-detection |
+| `template_engine` | `erb` | Auto-detection when a template marker appears |
+| `template_markers` | `<%`, `%>` | Marker strings |
+| `trusted_engines` | `erb` | Engines requiring explicit trusted-code opt-in |
+| `allow_trusted_engines` | `false` | Administrator-controlled trusted-code opt-in |
+| `llm.max_retries` | `1` | Retries after transient errors/invalid JSON |
+| `llm.retry_delay_seconds` | `1` | Delay between LLM retries |
+| `llm.caller` | `{extension: 'lex-transformer', mode: 'transform'}` | Default LLM attribution |
+| `execution.max_fanout` | `1000` | Local admission limit on output and child count |
+| `execution.max_depth` | `100` | Local admission limit on task/child depth |
 
-### Transform
+Depth and fanout limits are dynamic local policy under `extensions.transformer.execution`. The subscription queue is fixed at `task.transform`, not a setting. Task statuses, message types, metadata fields and routes are immutable wire identities owned by `Legion::Transport::Task::Protocol`; the transform route is always `task.subtask.transform`. Strict publication policy belongs to `transport.task_publication`. Settings are process-local, not distributed state: changing local policy cannot rename persisted statuses.
 
-#### `transform(transformation:, engine: nil, schema: nil, engine_options: {}, name: nil, **payload)`
+Engine grants must be Boolean values, not strings or additive arrays. Set unwanted engine keys to `false`; omission retains their inherited setting. Use symbol keys in Ruby overlays (Legion JSON configuration is already symbolized). Duplicate string/symbol spellings are rejected rather than allowing an inherited grant to shadow a denial. Restrictive request overlays therefore work without changing Legion Settings' established additive-array semantics.
 
-Renders the transformation template against the payload, optionally validates the result, then dispatches:
+## Engines and trust boundary
 
-- Hash result: routes to next task (`task.queued`)
-- Array result: fan-out via `dispatch_multiplied` (one task per element, marked `task.multiplied`)
-- Schema failure: `transformer.validation_failed`, no dispatch
+| Engine | Behavior |
+|---|---|
+| `static` | JSON text or a Ruby Hash/Array passed through to validation |
+| `erb` | Ruby execution through Tilt; **trusted administrator-owned templates only** |
+| `liquid` | Liquid template rendering; install `liquid` to enable |
+| `jsonpath` | Dot-path extraction, including numeric array indexes; final output must still be a Hash/Array of Hashes |
+| `llm` | `Legion::LLM.chat` or structured output; requires a started `legion-llm` |
 
-#### `transform_chain(steps:, **payload)`
+Engine methods return data or raise an exception; payload fields such as `success: false` remain ordinary business data. Only the outer client result's `success` field controls transformation outcome.
 
-Sequential pipeline. Each step has `:transformation`, optional `:engine`, optional `:schema`. Output of step N feeds into step N+1. Stops on first schema failure.
+ERB is **not sandboxed**. An allowlist is a configuration boundary, not a Ruby security sandbox. Do not let untrusted input select, supply, or modify ERB templates, definition settings, or trusted-engine policy. When explicitly enabled, ERB can execute arbitrary code and access process resources. Tilt-compatible, non-keyword input names are available as locals. The reserved `payload` local exposes the complete original input Hash, including transport headers and keys that cannot be Ruby variables, for example `payload[:"x-legion-version"]`. Referenced `settings`, `crypt`, and `cache` modules are exposed when loaded, and `task` is a plain task-values Hash when a task exists. Use Static, Liquid, or JSONPath for untrusted data transformations.
 
-## Transport
+LLM engine options include `model`, `provider`, `temperature`, `system_prompt`, `caller`, `structured`, `schema`, `max_retries`, and `retry_delay_seconds`. Only transient network/timeout and invalid-JSON errors retry. Permanent provider errors are logged and surfaced. JSON parsing uses Legion JSON throughout; output validation applies equally to every engine.
 
-- **Exchange**: `task` (inherits from `Legion::Transport::Exchanges::Task`)
-- **Queue**: `task.transform`
-- **Routing keys**: `task.subtask`, `task.subtask.transform`
+## Schema boundary
 
-## Requirements
+This is a field/type validator, **not a complete JSON Schema implementation**. Supported forms are `required_keys`/`types` and the equivalent JSON-style `required`/`properties.<field>.type`. Every object in a fanout is checked. A missing required field or wrong type returns `transformer.validation_failed`.
 
-- Ruby >= 3.4
-- [LegionIO](https://github.com/LegionIO/LegionIO) framework (for AMQP actor mode)
-- `tilt` >= 2.3
-- Standalone Client works without the framework
+Supported type names are `string`, `integer`, `number`, `float`, `boolean`, `object`/`hash`, `array`, and `null`/`nilclass`; Ruby classes such as `String`, `Integer`, `Hash`, and `Numeric` also work. Names are case-insensitive. Unsupported types fail clearly rather than silently disabling checks.
+
+## Runtime handoff
+
+The actor is an orchestration stage (`use_runner? false`): it does not execute or complete the eventual target runner. It accepts the same transform/chain arguments plus canonical task metadata. Business data belongs in `args`; transformed values cannot overwrite routing, policy identity, or lineage.
+
+- A persisted single-output task retains its original `task_id`, parent/master lineage, policy context, schema, engine options, schedule/occurrence, correlation and definition revision.
+- The stage updates the ordinary Task model with `task.queued`, JSON-serialized `function_args` and the outgoing `payload`, then publishes directly with `publish!`. Rendering and validation failures update the task status and JSON-serialized `results` without publishing.
+- Fanout creates one ordinary Task model per child with distinct task and message identities, serialized child arguments, `parent_id` pointing to the transform task, and preserved master lineage. Each child is published directly. After all publications succeed, the parent becomes `task.multiplied`, denoting handoff rather than completion of child effects. Child IDs are created here because downstream actors default to `generate_task? false`.
+- Cancelled, terminal, or already-running tasks are not dispatched again, including legacy `running` and completed status names. Previously completed deliveries return successful duplicate outcomes without rewriting the task. Child depth/fanout bounds are checked before child creation; execution deadline policy is not enforced.
+- Publication rejection raises. Task rows and broker publication are not an atomic operation: interrupted fanout may leave some children published, and redelivery may repeat work. There is no transactional outbox, execution lease, recorded-transformation replay, or exactly-once guarantee. Responses report `durable: false` even when Task rows are stored.
+- Without connected Data/task storage, publication still uses `publish!`. An explicit `function` and full `runner_routing_key` are required when no database-backed `function_id` can be resolved. The latter is the canonical `<extension>.<runner>.<function>` target route and is forwarded unchanged.
+
+The runtime assumes consumer prefetch 1. Persistence uses real Task model `create`/`update` operations; there is no separate task-execution persistence API.
+
+## Development
+
+Guarded companion Gemfile paths prefer `.ci-dependencies/<repo>`, then existing sibling extension or workspace gem checkouts. They do not change installed-gem behavior or use Git URLs. Release gates:
+
+```bash
+bundle exec rubocop -A
+bundle exec rspec --format json --out tmp/rspec_results.json --format progress --out tmp/rspec_progress.txt
+```
+
+The regression suite uses real Legion JSON, Settings, Logging, Conditioner, SQLite task persistence, and local transport. No broker or LLM credentials are required.
 
 ## License
 

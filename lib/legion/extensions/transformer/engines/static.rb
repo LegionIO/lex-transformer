@@ -11,7 +11,7 @@ module Legion
             :static
           end
 
-          def render(template, _payload, **_opts)
+          def render(template:, **)
             template
           end
         end

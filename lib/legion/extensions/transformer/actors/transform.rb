@@ -5,6 +5,8 @@ module Legion
     module Transformer
       module Actor
         class Transform < Legion::Extensions::Actors::Subscription
+          trusted_internal true
+
           def runner_function
             'transform'
           end

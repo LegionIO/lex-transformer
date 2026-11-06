@@ -1,5 +1,10 @@
 # frozen_string_literal: true
 
+require 'digest'
+require 'legion/json'
+require 'legion/logging'
+require 'legion/transport/task/protocol'
+require_relative '../transformer'
 require_relative 'engines/registry'
 require_relative 'helpers/schema_validator'
 require_relative 'definitions'
@@ -8,95 +13,98 @@ module Legion
   module Extensions
     module Transformer
       class Client
-        def transform(payload:, transformation: nil, engine: nil, schema: nil, engine_options: {}, name: nil)
-          return transform_by_name(name: name, payload: payload, engine_options: engine_options) if transformation.nil? && name
+        include Legion::Transport::Task::Protocol::Helper
+        include Legion::Logging::Helper
 
-          eng = resolve_engine(engine, transformation)
-          rendered = eng.render(transformation, payload, **engine_options)
-          rendered = parse_rendered(rendered)
+        def transform(payload:, transformation: nil, engine: nil, schema: nil, engine_options: {}, name: nil, steps: nil)
+          return transform_by_name(name:, payload:, engine:, schema:, engine_options:) if transformation.nil? && name
 
-          return rendered if rendered.is_a?(Hash) && rendered[:success] == false
+          if steps
+            outcome = transform_chain(steps: steps, payload: payload)
+            return outcome unless outcome[:success]
 
-          if schema
-            validation = Helpers::SchemaValidator.validate(schema: schema, data: rendered)
-            return { success: false, status: 'transformer.validation_failed', errors: validation[:errors] } unless validation[:valid]
+            validation = Legion::Extensions::Transformer::Helpers::SchemaValidator.validate(schema: schema, data: outcome[:result])
+            return { success: false, status: task_status(name: :transformer_validation_failed), errors: validation[:errors] } unless validation[:valid]
+
+            return outcome
           end
+          raise ArgumentError, 'transformation must be provided' if transformation.nil?
+          raise ArgumentError, 'payload must be a Hash' unless payload.is_a?(Hash)
 
-          { success: true, result: rendered }
+          selected = if engine
+                       Legion::Extensions::Transformer::Engines::Registry.fetch(name: engine)
+                     else
+                       Legion::Extensions::Transformer::Engines::Registry.detect(template: transformation)
+                     end
+          rendered = selected.render(template: transformation, payload: payload, **engine_options.transform_keys(&:to_sym))
+          rendered = Legion::JSON.load(rendered) if rendered.is_a?(String)
+
+          validate_output!(result: rendered)
+          validation = Legion::Extensions::Transformer::Helpers::SchemaValidator.validate(schema: schema, data: rendered)
+          return { success: false, status: task_status(name: :transformer_validation_failed), errors: validation[:errors] } unless validation[:valid]
+
+          revision = Digest::SHA256.hexdigest(Legion::JSON.dump({ transformation: transformation, engine: selected.name,
+                                                                schema: schema, engine_options: engine_options }))
+          { success: true, result: rendered, definition_version: revision }
+        rescue StandardError, LoadError => e
+          handle_exception(e, level: :error, handled: true)
+          { success: false, status: task_status(name: :transformer_failed), error: e.class.name, message: e.message }
         end
 
         def transform_chain(steps:, payload:)
-          result = payload.dup
+          raise ArgumentError, 'steps must be a nonempty Array' unless steps.is_a?(Array) && !steps.empty?
+          raise ArgumentError, 'payload must be a Hash' unless payload.is_a?(Hash)
+
+          context = payload.dup
+          revisions = []
+          outcome = nil
           steps.each do |step|
-            eng = resolve_engine(step[:engine], step[:transformation])
-            step_opts = step[:engine_options] || {}
-            rendered = eng.render(step[:transformation], result, **step_opts)
-            rendered = parse_rendered(rendered)
+            raise ArgumentError, 'each transform step must be a Hash' unless step.is_a?(Hash)
 
-            return rendered if rendered.is_a?(Hash) && rendered[:success] == false
+            outcome = transform(payload: context, **step.transform_keys(&:to_sym))
+            return outcome unless outcome[:success]
 
-            if step[:schema]
-              validation = Helpers::SchemaValidator.validate(schema: step[:schema], data: rendered)
-              return { success: false, status: 'transformer.validation_failed', errors: validation[:errors] } unless validation[:valid]
-            end
-
-            if rendered.is_a?(Hash)
-              result = result.merge({ args: rendered }.merge(rendered))
-            else
-              result[:args] = rendered
-            end
+            rendered = outcome[:result]
+            revisions << outcome[:definition_version]
+            context = context.merge(rendered) if rendered.is_a?(Hash)
+            context = context.merge(args: rendered)
           end
-          { success: true, result: result }
+          outcome.merge(definition_version: Digest::SHA256.hexdigest(revisions.join(':')))
+        rescue StandardError => e
+          handle_exception(e, level: :error, handled: true)
+          { success: false, status: task_status(name: :transformer_failed), error: e.class.name, message: e.message }
         end
 
         private
 
-        def transform_by_name(name:, payload:, engine_options: {})
-          definition = Definitions.fetch(name)
-          return { success: false, error: 'definition_not_found' } unless definition
+        def transform_by_name(name:, payload:, engine:, schema:, engine_options:)
+          definition = Legion::Extensions::Transformer::Definitions.fetch(name: name)
+          raise ArgumentError, "transformer definition not found: #{name}" unless definition
 
-          if definition[:conditions] && conditioner_available?
-            cond_result = evaluate_conditions(definition[:conditions], payload)
-            return { success: false, reason: 'conditions_not_met' } unless cond_result
+          if definition.key?(:conditions)
+            require 'legion/extensions/conditioner/client'
+            condition = Legion::Extensions::Conditioner::Client.new.evaluate(conditions: definition[:conditions], values: payload)
+            unless condition[:valid] == true
+              return { success: false, status: task_status(name: :skipped), reason: 'conditions_not_met', explanation: condition[:explanation] }
+            end
           end
+          engine_options = (definition[:engine_options] || {}).transform_keys(&:to_sym).merge(engine_options)
+          outcome = transform(payload: payload, transformation: definition[:transformation], engine: engine || definition[:engine],
+                              schema: schema || definition[:schema], engine_options: engine_options, steps: definition[:steps])
+          return outcome unless outcome[:success]
 
-          merged_opts = Definitions.merge_options(definition, **engine_options)
-
-          transform(
-            transformation: definition[:transformation],
-            payload:        payload,
-            engine:         definition[:engine],
-            schema:         definition[:schema],
-            engine_options: merged_opts
-          )
+          revision = Digest::SHA256.hexdigest(Legion::JSON.dump({ definition: definition, effective_revision: outcome[:definition_version] }))
+          outcome.merge(definition_version: revision)
         end
 
-        def conditioner_available?
-          defined?(Legion::Extensions::Conditioner::Client)
-        end
+        def validate_output!(result:)
+          raise ArgumentError, 'transform output must be a Hash or an Array of Hashes' unless result.is_a?(Hash) || (result.is_a?(Array) && result.all?(Hash))
+          return unless result.is_a?(Array)
 
-        def evaluate_conditions(conditions, payload)
-          client = Legion::Extensions::Conditioner::Client.new
-          result = client.evaluate(conditions: conditions, values: payload)
-          result[:passed]
-        rescue StandardError => _e
-          true
-        end
+          limit = Legion::Settings[:extensions][:transformer][:execution].fetch(:max_fanout)
+          raise ArgumentError, 'transformer execution.max_fanout must be a positive Integer' unless limit.is_a?(Integer) && limit.positive?
 
-        def resolve_engine(engine_name, transformation)
-          if engine_name
-            Engines::Registry.fetch(engine_name)
-          else
-            Engines::Registry.detect(transformation)
-          end
-        end
-
-        def parse_rendered(rendered)
-          return rendered unless rendered.is_a?(String)
-
-          Legion::JSON.load(rendered)
-        rescue StandardError => _e
-          rendered
+          raise ArgumentError, "transform output exceeds max_fanout #{limit}" if result.length > limit
         end
       end
     end

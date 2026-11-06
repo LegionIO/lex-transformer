@@ -6,9 +6,10 @@
 /pkg/
 /spec/reports/
 /tmp/
+/.ci-dependencies/
 
 # rspec failure tracking
 .rspec_status
 
 Gemfile.lock
-Gemfile.lock
+*.gem
